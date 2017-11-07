@@ -246,18 +246,9 @@ void ServiceNotificationCallback(
 	PrintStatusChanges(oldStatus, newStatus);
 }
 
-void SCMNotificationCallback(
-	DWORD notification,
-	const wchar_t* serviceName,
-	const SERVICE_STATUS_PROCESS& serviceStatus,
-	void* parameter)
+void SCMNotificationCallback(DWORD notification, const wchar_t* serviceName, const SERVICE_STATUS_PROCESS& serviceStatus, void* parameter)
 {
 	std::wcout << L"[" << ServiceNotificationToUnicode(notification).c_str() << L"] " << serviceName << L" " << std::endl;
-}
-
-void fMonitorWorkCallback(void* parameter)
-{
-	printf("%p\n", parameter);
 }
 
 int wmain(int argc, wchar_t* argv[])
