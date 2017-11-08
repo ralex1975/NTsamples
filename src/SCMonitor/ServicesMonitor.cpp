@@ -83,7 +83,7 @@ void BaseMonitorDispatcher::StartMonitor()
 	std::lock_guard<std::mutex> locker(m_controlMutex);
 
 	if (GetMonitorState() != MonitorStopped)
-		throw std::exception("BaseMonitorDispatcher::StartMonitor monitor isn't stopped");
+		throw std::exception("BaseMonitorDispatcher::StartMonitor: monitor isn't stopped");
 
 	SetMonitorState(MonitorStarted);
 	UnlockDispatcher();
@@ -94,7 +94,7 @@ void BaseMonitorDispatcher::StopMonitor()
 	std::lock_guard<std::mutex> locker(m_controlMutex);
 
 	if (GetMonitorState() != MonitorStarted)
-		throw std::exception("BaseMonitorDispatcher::StopMonitor monitor isn't started");
+		throw std::exception("BaseMonitorDispatcher::StopMonitor: monitor isn't started");
 
 	NotifyDispatcher(StopNotification);
 
@@ -169,11 +169,11 @@ void BaseMonitorDispatcher::NotificationDispatcher()
 	}
 	catch (std::system_error& e)
 	{
-		std::cout << "BaseMonitorDispatcher::NotificationDispatcher unhandled system exception: " << e.what() << " (code: " << e.code() << ")" << std::endl;
+		std::cout << "BaseMonitorDispatcher::NotificationDispatcher: unhandled system exception: " << e.what() << " (code: " << e.code() << ")" << std::endl;
 	}
 	catch (std::exception& e)
 	{
-		std::cout << "BaseMonitorDispatcher::NotificationDispatcher unhandled exception: " << e.what() << std::endl;
+		std::cout << "BaseMonitorDispatcher::NotificationDispatcher: unhandled exception: " << e.what() << std::endl;
 	}
 }
 
@@ -227,7 +227,7 @@ const wchar_t* BaseMonitorDispatcher::CleanServiceName(const wchar_t* serviceNam
 	while (*serviceName)
 	{
 		if (*serviceName == L'\0')
-			throw std::length_error("BaseMonitorDispatcher::CleanServiceName invalid service name");
+			throw std::length_error("BaseMonitorDispatcher::CleanServiceName: invalid service name");
 
 		if (*serviceName != L'\\' && *serviceName != L'/')
 			break;
@@ -240,8 +240,10 @@ const wchar_t* BaseMonitorDispatcher::CleanServiceName(const wchar_t* serviceNam
 HANDLE BaseMonitorDispatcher::AllocateEvent(bool manual, bool initial)
 {
 	HANDLE event = ::CreateEvent(NULL, (manual ? TRUE : FALSE), (initial ? TRUE : FALSE), NULL);
+
 	if (!event)
 		ThrowSystemError error(::GetLastError(), "BaseMonitorDispatcher::AllocateEvent -> CreateEvent()");
+
 	return event;
 }
 
@@ -304,23 +306,16 @@ void ServicesMonitor::RemoveService(const wchar_t* serviceName)
 {
 	auto cleanSvcName = CleanServiceName(serviceName);
 
-	// Stop processing of the notifications, because we want 
-	//PauseDispatcher();
+	std::lock_guard<std::mutex> locker(m_servicesMutex);
 
-	{
-		std::lock_guard<std::mutex> locker(m_servicesMutex);
+	auto svc = m_services.find(cleanSvcName);
+	if (svc == m_services.end())
+		throw std::out_of_range("ServicesMonitor::RemoveService: service not found");
 
-		auto svc = m_services.find(cleanSvcName);
-		if (svc == m_services.end())
-			throw std::out_of_range("ServicesMonitor::RemoveService service not found");
+	if (svc->second.handle)
+		::CloseServiceHandle(svc->second.handle);
 
-		if (svc->second.handle)
-			::CloseServiceHandle(svc->second.handle);
-
-		m_services.erase(svc);
-	}
-
-	//ResumeDispatcher();
+	m_services.erase(svc);
 }
 
 void ServicesMonitor::Subscribe(ServiceNotificationCallback callback, void* parameter)
@@ -328,7 +323,7 @@ void ServicesMonitor::Subscribe(ServiceNotificationCallback callback, void* para
 	std::lock_guard<std::mutex> locker(m_controlMutex);
 
 	if (m_monitoringStarted)
-		throw std::exception("ServicesMonitor::Subscribe can't subscribe after starting monitoring");
+		throw std::exception("ServicesMonitor::Subscribe: can't subscribe after starting monitoring");
 
 	m_subscibers.insert(m_subscibers.begin(), std::make_pair(callback, parameter));
 }
@@ -338,7 +333,7 @@ void ServicesMonitor::Unsubscribe(ServiceNotificationCallback callback)
 	std::lock_guard<std::mutex> locker(m_controlMutex);
 
 	if (m_monitoringStarted)
-		throw std::exception("ServicesMonitor::Unsubscribe can't unsubscribe after starting monitoring");
+		throw std::exception("ServicesMonitor::Unsubscribe: can't unsubscribe after starting monitoring");
 
 	for (auto it = m_subscibers.begin(); it != m_subscibers.end(); it++)
 	{
@@ -391,7 +386,6 @@ void ServicesMonitor::EnumAndInsertServices()
 		}
 		catch (std::exception& e)
 		{
-			//TODO: delete or not?
 			std::wcout << L"ServicesMonitor::EnumAndInsertServices: unhandled exception for service '" << service[i].lpServiceName << "' : ";
 			std::cout << e.what() << std::endl;
 		}
@@ -403,12 +397,16 @@ void ServicesMonitor::StartMonitoring()
 	std::lock_guard<std::mutex> locker(m_controlMutex);
 
 	if (m_monitoringStarted)
-		throw std::exception("ServicesMonitor::StartMonitoring monitoring is already started");
+		throw std::exception("ServicesMonitor::StartMonitoring: monitoring is already started");
+
+	m_notification.active = false;
+	PushCallback(InstallSCMNotification, this);
+
+	BaseMonitorDispatcher::StartMonitor();
 
 	EnumAndInsertServices();
 	PushCallback(InstallServicesNotification, this);
 
-	BaseMonitorDispatcher::StartMonitor();
 	m_monitoringStarted = true;
 }
 
@@ -417,7 +415,7 @@ void ServicesMonitor::StopMonitoring()
 	std::lock_guard<std::mutex> locker(m_controlMutex);
 
 	if (!m_monitoringStarted)
-		throw std::exception("ServicesMonitor::StopMonitoring monitoring is already stopped");
+		throw std::exception("ServicesMonitor::StopMonitoring: monitoring is already stopped");
 
 	{
 		std::lock_guard<std::mutex> locker(m_servicesMutex);
@@ -501,7 +499,6 @@ void ServicesMonitor::InstallServicesNotification(void* parameter)
 				it->second.registred = true;
 			else
 			{
-				//TODO: delete or not?
 				std::cout << "ServicesMonitor::InstallServicesNotification -> NotifyServiceStatusChangeW() failed with code: " << errorCode << " ";
 				std::wcout << it->first.c_str() << std::endl;
 			}
@@ -509,62 +506,9 @@ void ServicesMonitor::InstallServicesNotification(void* parameter)
 	}
 }
 
-// ============================================
-
-// ============================================
-
-ServiceControlManagerMonitor::ServiceControlManagerMonitor()
+void CALLBACK ServicesMonitor::SCMNotificationDispatcherRoutine(PVOID parameter)
 {
-}
-
-ServiceControlManagerMonitor::~ServiceControlManagerMonitor()
-{
-	if(m_monitoringStarted)
-		StopMonitoring();
-}
-
-void ServiceControlManagerMonitor::SubscribeSCM(SCMNotificationCallback callback, void* parameter)
-{
-	std::lock_guard<std::mutex> locker(m_controlMutex);
-
-	if (m_monitoringStarted)
-		throw std::exception("ServiceControlManagerMonitor::Subscribe can't subscribe after starting monitoring");
-
-	m_subscibers.insert(m_subscibers.begin(), std::make_pair(callback, parameter));
-}
-
-void ServiceControlManagerMonitor::UnsubscribeSCM(SCMNotificationCallback callback)
-{
-	std::lock_guard<std::mutex> locker(m_controlMutex);
-
-	if (m_monitoringStarted)
-		throw std::exception("ServiceControlManagerMonitor::Unsubscribe can't unsubscribe after starting monitoring");
-
-	for (auto it = m_subscibers.begin(); it != m_subscibers.end(); it++)
-	{
-		if (it->first == callback)
-		{
-			m_subscibers.erase(it);
-			break;
-		}
-	}
-}
-
-void ServiceControlManagerMonitor::StartMonitoring()
-{
-	m_notification.active = false;
-	PushCallback(InstallSCMNotification, this);
-	ServicesMonitor::StartMonitoring();
-}
-
-void ServiceControlManagerMonitor::StopMonitoring()
-{
-	ServicesMonitor::StopMonitoring();
-}
-
-void CALLBACK ServiceControlManagerMonitor::SCMNotificationDispatcherRoutine(PVOID parameter)
-{
-	auto& context = *(NotificationContext*)parameter;
+	auto& context = *(ManagerNotificationContext*)parameter;
 	auto& notification = context.notification;
 	auto& monitor = *context.monitor;
 	auto clearServiceName = CleanServiceName(notification.pszServiceNames);
@@ -580,9 +524,8 @@ void CALLBACK ServiceControlManagerMonitor::SCMNotificationDispatcherRoutine(PVO
 			monitor.InsertService(clearServiceName, notification.ServiceStatus);
 	}
 	catch (std::exception& e)
-	{ 
-		//TODO: delete or not?
-		std::wcout << L"ServiceControlManagerMonitor::SCMNotificationDispatcherRoutine: unhandled exception for service '" << clearServiceName << "' : ";
+	{
+		std::wcout << L"ServicesMonitor::SCMNotificationDispatcherRoutine: unhandled exception for service '" << clearServiceName << "' : ";
 		std::cout << e.what() << std::endl;
 	}
 
@@ -590,25 +533,25 @@ void CALLBACK ServiceControlManagerMonitor::SCMNotificationDispatcherRoutine(PVO
 	{
 		auto callback = (*it).first;
 		auto param = (*it).second;
-		callback(notification.dwNotificationTriggered, clearServiceName, notification.ServiceStatus, param);
+		callback(notification.dwNotificationTriggered, clearServiceName, notification.ServiceStatus, notification.ServiceStatus, param);
 	}
 
 	context.active = true;
 	auto errorCode = NotifyServiceStatusChangeW(
-		monitor.m_scManager,
-		SERVICE_NOTIFY_CREATED | SERVICE_NOTIFY_DELETED,
-		&notification);
-
-	if (errorCode != ERROR_SUCCESS) //TODO: delete or not?
+						monitor.m_scManager,
+						SERVICE_NOTIFY_CREATED | SERVICE_NOTIFY_DELETED,
+						&notification
+					);
+	if (errorCode != ERROR_SUCCESS)
 	{
 		context.active = false;
-		std::cout << "ServiceControlManagerMonitor::SCMNotificationDispatcherRoutine -> NotifyServiceStatusChangeW() failed with code: " << errorCode << std::endl;
+		std::cout << "ServicesMonitor::SCMNotificationDispatcherRoutine -> NotifyServiceStatusChangeW() failed with code: " << errorCode << std::endl;
 	}
 }
 
-void ServiceControlManagerMonitor::InstallSCMNotification(void* parameter)
+void ServicesMonitor::InstallSCMNotification(void* parameter)
 {
-	auto monitor = reinterpret_cast<ServiceControlManagerMonitor*>(parameter);
+	auto monitor = reinterpret_cast<ServicesMonitor*>(parameter);
 	auto& notification = monitor->m_notification.notification;
 
 	if (monitor->m_notification.active)
@@ -623,11 +566,7 @@ void ServiceControlManagerMonitor::InstallSCMNotification(void* parameter)
 	monitor->m_notification.monitor = monitor;
 	monitor->m_notification.active = true;
 
-	auto errorCode = NotifyServiceStatusChangeW(
-		monitor->m_scManager,
-		SERVICE_NOTIFY_CREATED | SERVICE_NOTIFY_DELETED,
-		&notification);
-
-	if (errorCode != ERROR_SUCCESS) //TODO: delete or not?
-		std::cout << "ServiceControlManagerMonitor::InstallSCMNotification -> NotifyServiceStatusChangeW() failed with code: " << errorCode << std::endl;
+	auto errorCode = NotifyServiceStatusChangeW(monitor->m_scManager, SERVICE_NOTIFY_CREATED | SERVICE_NOTIFY_DELETED, &notification);
+	if (errorCode != ERROR_SUCCESS)
+		std::cout << "ServicesMonitor::InstallSCMNotification -> NotifyServiceStatusChangeW() failed with code: " << errorCode << std::endl;
 }

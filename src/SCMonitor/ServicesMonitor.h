@@ -117,6 +117,15 @@ private:
 		NotificationContext context;
 	};
 
+	struct ManagerNotificationContext
+	{
+		SERVICE_NOTIFYW notification;
+		ServicesMonitor* monitor;
+		bool active;
+	};
+
+	ManagerNotificationContext m_notification;
+
 	std::mutex m_controlMutex;
 
 	typedef std::pair<ServiceNotificationCallback, void*> SubscriberContext;
@@ -130,8 +139,10 @@ private:
 	void EnumAndInsertServices();
 
 	static void CALLBACK ServiceNotificationDispatcherRoutine(PVOID parameter);
-
 	static void InstallServicesNotification(void* parameter);
+
+	static void CALLBACK SCMNotificationDispatcherRoutine(PVOID parameter);
+	static void InstallSCMNotification(void* parameter);
 
 protected:
 
@@ -153,44 +164,4 @@ public:
 	void StartMonitoring();
 	void StopMonitoring();
 
-};
-
-class ServiceControlManagerMonitor : public ServicesMonitor
-{
-public:
-
-	typedef void(*SCMNotificationCallback)(
-		DWORD notification,
-		const wchar_t* serviceName,
-		const SERVICE_STATUS_PROCESS& serviceStatus,
-		void* parameter
-	);
-
-	std::mutex m_controlMutex;
-
-	typedef std::pair<SCMNotificationCallback, void*> SubscriberContext;
-	std::set<SubscriberContext> m_subscibers;
-
-	struct NotificationContext
-	{
-		SERVICE_NOTIFYW notification;
-		ServiceControlManagerMonitor* monitor;
-		bool active;
-	};
-
-	NotificationContext m_notification;
-
-	static void CALLBACK SCMNotificationDispatcherRoutine(PVOID parameter);
-	static void InstallSCMNotification(void* parameter);
-
-public:
-
-	ServiceControlManagerMonitor();
-	~ServiceControlManagerMonitor();
-
-	void SubscribeSCM(SCMNotificationCallback callback, void* parameter);
-	void UnsubscribeSCM(SCMNotificationCallback callback);
-
-	void StartMonitoring();
-	void StopMonitoring();
 };
