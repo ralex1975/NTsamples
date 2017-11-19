@@ -7,6 +7,12 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SCMonitor", "SCMonitor\SCMo
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Services", "Services", "{F4238C34-B561-4BC0-BFFA-CFAAF7DDB66F}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "File System", "File System", "{125E84AE-3A2F-4EFC-B3B2-85B73A14874E}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BackupDeleted", "BackupDeleted\BackupDeleted.vcxproj", "{A51636BE-1D9B-4A13-B360-34AC9B447D48}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Misc", "Misc", "{0963A201-3A3F-47DB-8CD4-94EF916A14DD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Win32 = Debug|Win32
@@ -23,11 +29,20 @@ Global
 		{B6942D7E-0A54-4D73-BE99-4407F6372B3D}.Release|Win32.Build.0 = Release|Win32
 		{B6942D7E-0A54-4D73-BE99-4407F6372B3D}.Release|x64.ActiveCfg = Release|x64
 		{B6942D7E-0A54-4D73-BE99-4407F6372B3D}.Release|x64.Build.0 = Release|x64
+		{A51636BE-1D9B-4A13-B360-34AC9B447D48}.Debug|Win32.ActiveCfg = Debug|Win32
+		{A51636BE-1D9B-4A13-B360-34AC9B447D48}.Debug|Win32.Build.0 = Debug|Win32
+		{A51636BE-1D9B-4A13-B360-34AC9B447D48}.Debug|x64.ActiveCfg = Debug|x64
+		{A51636BE-1D9B-4A13-B360-34AC9B447D48}.Debug|x64.Build.0 = Debug|x64
+		{A51636BE-1D9B-4A13-B360-34AC9B447D48}.Release|Win32.ActiveCfg = Release|Win32
+		{A51636BE-1D9B-4A13-B360-34AC9B447D48}.Release|Win32.Build.0 = Release|Win32
+		{A51636BE-1D9B-4A13-B360-34AC9B447D48}.Release|x64.ActiveCfg = Release|x64
+		{A51636BE-1D9B-4A13-B360-34AC9B447D48}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{B6942D7E-0A54-4D73-BE99-4407F6372B3D} = {F4238C34-B561-4BC0-BFFA-CFAAF7DDB66F}
+		{A51636BE-1D9B-4A13-B360-34AC9B447D48} = {125E84AE-3A2F-4EFC-B3B2-85B73A14874E}
 	EndGlobalSection
 EndGlobal

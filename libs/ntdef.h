@@ -2,12 +2,6 @@
 
 #include <Windows.h>
 
-#ifdef _M_AMD64
-#pragma common(lib, "ntdll_x64.lib")
-#else
-#pragma common(lib, "ntdll_x86.lib")    
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -453,10 +447,19 @@ BOOLEAN NTAPI RtlDosPathNameToNtPathName_U(
 	__out_opt PVOID RelativeName
 );
 
+// Heap
+
+PVOID NTAPI RtlAllocateHeap(
+    IN PVOID HeapHandle,
+    IN ULONG Flags,
+    IN SIZE_T Size);
+
+BOOLEAN NTAPI RtlFreeHeap(
+    IN PVOID HeapHandle,
+    IN ULONG Flags,
+    IN PVOID HeapBase);
+
 #pragma pack(pop)
-
-
-
 
 #ifdef __cplusplus
 }
