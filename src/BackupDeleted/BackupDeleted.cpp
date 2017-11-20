@@ -147,15 +147,14 @@ HANDLE CreateHardLinkInternal(const wchar_t* DestinationFile, const wchar_t* Sou
 
         InitializeObjectAttributes(&attribs, &srcPath, OBJ_CASE_INSENSITIVE, 0, 0);
 
-        //TODO: it's a good idea to make a research how sharing violations works
         status = NtCreateFile(
             &file,
-            GENERIC_READ | /*DELETE |*/ SYNCHRONIZE | FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES,
+            SYNCHRONIZE | FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES,
             &attribs,
             &ioStatus,
             0,
             FILE_ATTRIBUTE_NORMAL,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, // ???
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             1,
             FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE | FILE_TRANSACTED_MODE,
             NULL,
@@ -191,17 +190,11 @@ HANDLE CreateHardLinkInternal(const wchar_t* DestinationFile, const wchar_t* Sou
             break;
         }
 
-        /*if (!CreateHardLinkW(DestinationFile, SourceFile, NULL))
-        {
-            printf("Error, can't create hard link to file '%S', code %X\n", SourceFile, GetLastError());
-            break;
-        }*/
-
         result = true;
     }
     while (false);
 
-    if (file != INVALID_HANDLE_VALUE)
+    if (!result && file != INVALID_HANDLE_VALUE)
     {
         NtClose(file);
         file = INVALID_HANDLE_VALUE;
@@ -215,17 +208,6 @@ HANDLE CreateHardLinkInternal(const wchar_t* DestinationFile, const wchar_t* Sou
 
     if (buffer)
         free(buffer);
-
-    if (result)
-        file = CreateFileW(
-            DestinationFile,
-            GENERIC_READ | DELETE, 
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            NULL,
-            OPEN_ALWAYS,
-            FILE_FLAG_DELETE_ON_CLOSE, 
-            NULL
-        );
 
     return file;
 }
