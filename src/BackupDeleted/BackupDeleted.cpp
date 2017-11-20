@@ -191,6 +191,12 @@ HANDLE CreateHardLinkInternal(const wchar_t* DestinationFile, const wchar_t* Sou
             break;
         }
 
+        /*if (!CreateHardLinkW(DestinationFile, SourceFile, NULL))
+        {
+            printf("Error, can't create hard link to file '%S', code %X\n", SourceFile, GetLastError());
+            break;
+        }*/
+
         result = true;
     }
     while (false);
@@ -589,11 +595,11 @@ bool StartBackupMonitor(wchar_t* SourceDir, wchar_t* BackupDir)
         {
         case FILE_ACTION_ADDED:
         case FILE_ACTION_RENAMED_NEW_NAME:
-            printf("create file ");
+            printf("CREATE FILE ");
             break;
         case FILE_ACTION_REMOVED:
         case FILE_ACTION_RENAMED_OLD_NAME: //TODO: check what is a new name using file context
-            printf("delete file ");
+            printf("DELETE FILE ");
             break;
         }
 
