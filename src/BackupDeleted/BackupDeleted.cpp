@@ -5,6 +5,12 @@
 #include "ntdef.h"
 #include "AVLTree.h"
 
+/*TODO list:
+- Add IOCP support if needed
++ Think about modified files : 0xC0000034 STATUS_OBJECT_NAME_NOT_FOUND
+- Why we leak file handles?
+*/
+
 struct
 {
     HANDLE           SourceDirHandle;
@@ -67,6 +73,8 @@ void AVLTreeFree(void* NodeBuf, void* Node)
 {
     FileContext* fileContext = (FileContext*)Node;
 
+    DeleteFileW(fileContext->TempFileName);
+
     ReleaseString(fileContext->BackupFileName);
     ReleaseString(fileContext->TempFileName);
     ReleaseString(fileContext->Key);
@@ -126,13 +134,15 @@ bool SetPrivileges(LPCSTR Privilege, BOOL Enable)
 }
 
 HANDLE CreateHardLinkInternal(const wchar_t* DestinationFile, const wchar_t* SourceFile)
-{//TODO: is there any profit when NT variant is used?
+{// Is it possible to replace NtCreateFile to CreateFile??
+ // TODO: remove handle from routine
     UNICODE_STRING destPath = {}, srcPath = {};
     OBJECT_ATTRIBUTES attribs = {};
     IO_STATUS_BLOCK ioStatus;
     PFILE_LINK_INFORMATION info;
     NTSTATUS status;
     HANDLE file = INVALID_HANDLE_VALUE;
+    HANDLE fileHL = INVALID_HANDLE_VALUE;
     char* buffer = 0;
     size_t buffSize, sourceSize;
     bool result = false;
@@ -156,7 +166,7 @@ HANDLE CreateHardLinkInternal(const wchar_t* DestinationFile, const wchar_t* Sou
             FILE_ATTRIBUTE_NORMAL,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             1,
-            FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE | FILE_TRANSACTED_MODE,
+            FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
             NULL,
             0
         );
@@ -194,7 +204,25 @@ HANDLE CreateHardLinkInternal(const wchar_t* DestinationFile, const wchar_t* Sou
     }
     while (false);
 
-    if (!result && file != INVALID_HANDLE_VALUE)
+    if (result)
+    {
+        fileHL = CreateFileW(
+            DestinationFile,
+            SYNCHRONIZE | FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES | DELETE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            NULL, OPEN_EXISTING, FILE_FLAG_DELETE_ON_CLOSE, NULL
+        );
+
+        if (fileHL != INVALID_HANDLE_VALUE)
+            fileHL = CreateFileW(
+                DestinationFile,
+                SYNCHRONIZE | FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                NULL, OPEN_EXISTING, 0, NULL
+            );
+    }
+
+    if (file != INVALID_HANDLE_VALUE)
     {
         NtClose(file);
         file = INVALID_HANDLE_VALUE;
@@ -209,7 +237,7 @@ HANDLE CreateHardLinkInternal(const wchar_t* DestinationFile, const wchar_t* Sou
     if (buffer)
         free(buffer);
 
-    return file;
+    return fileHL;
 }
 
 bool IsDirExists(const wchar_t* DirPath)
@@ -306,13 +334,7 @@ bool CreateTemporaryBackup(const wchar_t* SourceFile)
 
         fileContext.TempFile = CreateHardLinkInternal(tempFile, fullSourcePath);
         if (fileContext.TempFile == INVALID_HANDLE_VALUE)
-        {
-            printf("oops can't create backup, retrying\n");
-            Sleep(50); //TODO: just a trick, will be replaced to delayed queue
-            fileContext.TempFile = CreateHardLinkInternal(tempFile, fullSourcePath);
-            if (fileContext.TempFile == INVALID_HANDLE_VALUE)
-                break;
-        }
+            break;
 
         fileContext.TempFileName = AllocateString(tempFile);
         if (!fileContext.TempFileName)
@@ -367,6 +389,7 @@ bool RestoreBackupFromTemp(FileContext* FileContext, wchar_t* RestoredFilePath)
 {
     size_t i = wcslen(RestoredFilePath);
     bool isDirReady = false;
+    HANDLE restored;
 
     if (i == 0)
         return false;
@@ -389,12 +412,18 @@ bool RestoreBackupFromTemp(FileContext* FileContext, wchar_t* RestoredFilePath)
     if (!isDirReady)
         return false;
 
-    if (!CopyFileW(FileContext->TempFileName, RestoredFilePath, TRUE))
+    /*if (!CopyFileW(FileContext->TempFileName, RestoredFilePath, TRUE))
     {
         //TODO: retry create file with different name
         printf("Error, can't restore file '%S', code %d\n", RestoredFilePath, GetLastError());
         return false;
-    }
+    }*/
+
+    restored = CreateHardLinkInternal(RestoredFilePath, FileContext->TempFileName);
+    if (restored == INVALID_HANDLE_VALUE)
+        return false;
+
+    CloseHandle(restored);
 
     return true;
 }
@@ -405,6 +434,7 @@ bool UpgradeBackupToConstant(const wchar_t* SourceFile)
     FileContext* fileContext;
     wchar_t* restoredFilePath = 0;
     bool result = false;
+    bool found = false;
 
     memset(&lookFileContext, 0, sizeof(lookFileContext));
 
@@ -423,19 +453,23 @@ bool UpgradeBackupToConstant(const wchar_t* SourceFile)
     }
 
     restoredFilePath = AllocateString(g_MonitorContext.DestBackupDir, SourceFile);
+    if (!restoredFilePath)
+    {
+        printf("Error, can't allocate restored path\n");
+        goto ReleaseBlock;
+    }
+
+    found = true;
 
     if (!RestoreBackupFromTemp(fileContext, restoredFilePath))
         goto ReleaseBlock;
 
-    if (!RemoveAVLElement(&g_MonitorContext.FilesContext, &lookFileContext))
-    {
-        printf("Error, can't find a context for the following file '%S'\n", SourceFile);
-        goto ReleaseBlock;
-    }
-
     result = true;
 
 ReleaseBlock:
+
+    if (found)
+        RemoveAVLElement(&g_MonitorContext.FilesContext, &lookFileContext);
 
     if (lookFileContext.Key)
         ReleaseString(lookFileContext.Key);
@@ -558,12 +592,14 @@ bool StartBackupMonitor(wchar_t* SourceDir, wchar_t* BackupDir)
 
     while (true)
     {
+        PFILE_NOTIFY_INFORMATION currentInfo = changeInfo;
+
         if (!ReadDirectoryChangesW(
                 g_MonitorContext.SourceDirHandle, 
                 changeInfo, 
                 ChangeInformationBlockSize,
                 TRUE, 
-                FILE_NOTIFY_CHANGE_FILE_NAME, 
+                FILE_NOTIFY_CHANGE_FILE_NAME,
                 &returned, 
                 NULL, 
                 NULL))
@@ -573,34 +609,55 @@ bool StartBackupMonitor(wchar_t* SourceDir, wchar_t* BackupDir)
             return false;
         }
 
-        switch (changeInfo->Action)
+
+        while (true)
         {
-        case FILE_ACTION_ADDED:
-        case FILE_ACTION_RENAMED_NEW_NAME:
-            printf("CREATE FILE ");
-            break;
-        case FILE_ACTION_REMOVED:
-        case FILE_ACTION_RENAMED_OLD_NAME: //TODO: check what is a new name using file context
-            printf("DELETE FILE ");
-            break;
+            switch (currentInfo->Action)
+            {
+            case FILE_ACTION_ADDED:
+                printf("FILE_ACTION_ADDED ");
+                break;
+            case FILE_ACTION_RENAMED_NEW_NAME:
+                printf("FILE_ACTION_RENAMED_NEW_NAME ");
+                break;
+            case FILE_ACTION_REMOVED:
+                printf("FILE_ACTION_REMOVED ");
+                break;
+            case FILE_ACTION_RENAMED_OLD_NAME:
+                printf("FILE_ACTION_RENAMED_OLD_NAME ");
+                break;
+            case FILE_ACTION_MODIFIED:
+                printf("FILE_ACTION_MODIFIED ");
+                break;
+            default:
+                printf("UNKNOWN ");
+                break;
+            }
+
+            currentInfo->FileName[currentInfo->FileNameLength / sizeof(WCHAR)] = L'\0';
+            printf("%S\n", currentInfo->FileName);
+
+            if (currentInfo->FileNameLength + sizeof(FILE_NOTIFY_INFORMATION)+sizeof(WCHAR) > ChangeInformationBlockSize)
+                break;
+
+            currentInfo->FileName[currentInfo->FileNameLength / sizeof(WCHAR)] = L'\0';
+
+            if (currentInfo->Action == FILE_ACTION_ADDED || currentInfo->Action == FILE_ACTION_RENAMED_NEW_NAME)
+            {
+                CreateTemporaryBackup(currentInfo->FileName);
+            }
+            else if (currentInfo->Action == FILE_ACTION_REMOVED || currentInfo->Action == FILE_ACTION_RENAMED_OLD_NAME)
+            {
+                UpgradeBackupToConstant(currentInfo->FileName);
+            }
+
+            if (!currentInfo->NextEntryOffset)
+                break;
+
+            currentInfo = (PFILE_NOTIFY_INFORMATION)((char*)currentInfo + currentInfo->NextEntryOffset);
         }
 
-        changeInfo->FileName[changeInfo->FileNameLength / sizeof(WCHAR)] = L'\0';
-        printf("%S\n", changeInfo->FileName);
-
-        if (changeInfo->FileNameLength + sizeof(FILE_NOTIFY_INFORMATION) + sizeof(WCHAR) > ChangeInformationBlockSize)
-            continue;
-
-        changeInfo->FileName[changeInfo->FileNameLength / sizeof(WCHAR)] = L'\0';
-
-        if (changeInfo->Action == FILE_ACTION_ADDED || changeInfo->Action == FILE_ACTION_RENAMED_NEW_NAME)
-        {
-            CreateTemporaryBackup(changeInfo->FileName);
-        }
-        else if (changeInfo->Action == FILE_ACTION_REMOVED || changeInfo->Action == FILE_ACTION_RENAMED_OLD_NAME)
-        {
-            UpgradeBackupToConstant(changeInfo->FileName);
-        }
+        
     }
     
     return true;
