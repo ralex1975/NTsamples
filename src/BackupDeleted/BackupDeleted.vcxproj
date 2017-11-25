@@ -80,21 +80,21 @@
     <LinkIncremental>true</LinkIncremental>
     <OutDir>$(SolutionDir)..\build\$(Configuration)\x64\</OutDir>
     <IntDir>$(SolutionDir)..\build\intermediate\$(Platform)\$(Configuration)\</IntDir>
-    <IncludePath>$(SolutionDir)..\libs;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir)..\libs;$(SolutionDir)CommonLib;$(IncludePath)</IncludePath>
     <LibraryPath>$(SolutionDir)..\libs;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
     <OutDir>$(SolutionDir)..\build\$(Configuration)\x86\</OutDir>
     <IntDir>$(SolutionDir)..\build\intermediate\$(Configuration)\</IntDir>
-    <IncludePath>$(SolutionDir)..\libs;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir)..\libs;$(SolutionDir)CommonLib;$(IncludePath)</IncludePath>
     <LibraryPath>$(SolutionDir)..\libs;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
     <OutDir>$(SolutionDir)..\build\$(Configuration)\x64\</OutDir>
     <IntDir>$(SolutionDir)..\build\intermediate\$(Platform)\$(Configuration)\</IntDir>
-    <IncludePath>$(SolutionDir)..\libs;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir)..\libs;$(SolutionDir)CommonLib;$(IncludePath)</IncludePath>
     <LibraryPath>$(SolutionDir)..\libs;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -170,6 +170,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <AdditionalDependencies>ntdll_x64.lib;CommonLib.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(OutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <Profile>true</Profile>
     </Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

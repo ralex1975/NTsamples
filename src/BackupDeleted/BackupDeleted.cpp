@@ -12,7 +12,7 @@
 - Add IOCP support if needed
 + Think about modified files : 0xC0000034 STATUS_OBJECT_NAME_NOT_FOUND
 + Exclude backup path from monitored
-- Solve backup duplication
++ Solve backup duplication
 + Move stuff to common lib
 + Temporary generation
 - More informative errors
@@ -96,69 +96,67 @@ bool CreateTemporaryBackup(const wchar_t* SourceFile)
     }
 
     memset(&fileContext, 0, sizeof(fileContext));
-
-    do
+    
+    fullSourcePath = BuildWideString(g_MonitorContext.SourceDir, SourceFile, NULL);
+    if (!fullSourcePath)
     {
-        fullSourcePath = BuildWideString(g_MonitorContext.SourceDir, SourceFile, NULL);
-        if (!fullSourcePath)
-        {
-            printf("Error, can't prepare source file name\n");
-            break;
-        }
+        printf("Error, can't prepare source file name\n");
+        goto ReleaseBlock;
+    }
 
-        if (!CreateHardLinkToExistingFile(tempFile, fullSourcePath))
-        {
-            printf("Error, can't create hard link (code: %d)\n", GetLastError());
-            break;
-        }
+    if (!CreateHardLinkToExistingFile(tempFile, fullSourcePath))
+    {
+        printf("Error, can't create hard link, code: %d\n", GetLastError());
+        goto ReleaseBlock;
+    }
 
-        fileContext.TempFile = ::CreateFileW(
-            tempFile,
-            SYNCHRONIZE, 
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            NULL, 
-            OPEN_EXISTING, 
-            0, 
-            NULL
-        );
-        if (fileContext.TempFile == INVALID_HANDLE_VALUE)
-        {
-            printf("Error, can't open hard link (code: %d)\n", GetLastError());
-            break;
-        }
+    fileContext.TempFile = ::CreateFileW(
+        tempFile,
+        SYNCHRONIZE, 
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        NULL, 
+        OPEN_EXISTING, 
+        0, 
+        NULL
+    );
+    if (fileContext.TempFile == INVALID_HANDLE_VALUE)
+    {
+        printf("Error, can't open hard link, code: %d\n", GetLastError());
+        goto ReleaseBlock;
+    }
 
-        fileContext.TempFileName = BuildWideString(tempFile, NULL);
-        if (!fileContext.TempFileName)
-        {
-            printf("Error, can't allocate temp file name\n");
-            break;
-        }
+    fileContext.TempFileName = BuildWideString(tempFile, NULL);
+    if (!fileContext.TempFileName)
+    {
+        printf("Error, can't allocate temp file name\n");
+        goto ReleaseBlock;
+    }
 
-        fileContext.Key = BuildWideString(SourceFile, NULL);
-        if (!fileContext.Key)
-        {
-            printf("Error, can't allocate key string\n");
-            break;
-        }
+    fileContext.Key = BuildWideString(SourceFile, NULL);
+    if (!fileContext.Key)
+    {
+        printf("Error, can't allocate key string\n");
+        goto ReleaseBlock;
+    }
 
-        _wcslwr(fileContext.Key);
+    _wcslwr(fileContext.Key);
 
-        fileContext.BackupFileName = BuildWideString(SourceFile, NULL);
-        if (!fileContext.BackupFileName)
-        {
-            printf("Error, can't allocate key string\n");
-            break;
-        }
+    fileContext.BackupFileName = BuildWideString(SourceFile, NULL);
+    if (!fileContext.BackupFileName)
+    {
+        printf("Error, can't allocate key string\n");
+        goto ReleaseBlock;
+    }
 
-        if (!InsertAVLElement(&g_MonitorContext.FilesContext, &fileContext, sizeof(fileContext)))
-        {
-            printf("Error, can't save file cache\n");
-            break;
-        }
+    if (!InsertAVLElement(&g_MonitorContext.FilesContext, &fileContext, sizeof(fileContext)))
+    {
+        printf("Error, can't save file cache\n");
+        goto ReleaseBlock;
+    }
 
-        result = true;
-    } 
-    while (false);
+    result = true;
+    
+ReleaseBlock:
 
     if (!result)
     {
@@ -204,13 +202,34 @@ bool RestoreBackupFromTemp(FileContext* FileContext, wchar_t* RestoredFilePath)
     if (!isDirReady)
         return false;
 
-    if (!CreateHardLinkToExistingFile(RestoredFilePath, FileContext->TempFileName))
-    {
-        printf("Error, can't create hard link (code: %d)\n", GetLastError());
+    if (CreateHardLinkW(RestoredFilePath, FileContext->TempFileName, NULL))
+        return true;
+
+    if (GetLastError() != ERROR_ALREADY_EXISTS)
         return false;
+
+    // If file with the same name exists we should try to find out different name for restoration
+
+    for (i = 1; i < 10000; i++)
+    {
+        wchar_t postfix[100];
+        wchar_t* pathWithPostfix;
+        BOOL result;
+
+        _swprintf(postfix, L".%d", i);
+
+        pathWithPostfix = BuildWideString(RestoredFilePath, postfix, NULL);
+        if (!pathWithPostfix)
+            return false;
+
+        result = CreateHardLinkW(pathWithPostfix, FileContext->TempFileName, NULL);
+        FreeWideString(pathWithPostfix);
+
+        if (result || GetLastError() != ERROR_ALREADY_EXISTS)
+            return result;
     }
 
-    return true;
+    return false;
 }
 
 bool UpgradeBackupToConstant(const wchar_t* SourceFile)
@@ -534,20 +553,16 @@ bool StartBackupMonitor(wchar_t* SourceDir, wchar_t* BackupDir)
             currentInfo->FileName[currentInfo->FileNameLength / sizeof(WCHAR)] = L'\0';
             printf("%S\n", currentInfo->FileName);
 
-            if (currentInfo->FileNameLength + sizeof(FILE_NOTIFY_INFORMATION)+sizeof(WCHAR) > ChangeInformationBlockSize)
+            if (currentInfo->FileNameLength + sizeof(FILE_NOTIFY_INFORMATION) + sizeof(WCHAR) > ChangeInformationBlockSize)
                 break;
 
             currentInfo->FileName[currentInfo->FileNameLength / sizeof(WCHAR)] = L'\0';
 
             if (currentInfo->Action == FILE_ACTION_ADDED || currentInfo->Action == FILE_ACTION_RENAMED_NEW_NAME)
-            {
                 CreateTemporaryBackup(currentInfo->FileName);
-            }
             else if (currentInfo->Action == FILE_ACTION_REMOVED || currentInfo->Action == FILE_ACTION_RENAMED_OLD_NAME)
-            {
                 UpgradeBackupToConstant(currentInfo->FileName);
-            }
-
+            
             if (!currentInfo->NextEntryOffset)
                 break;
 
