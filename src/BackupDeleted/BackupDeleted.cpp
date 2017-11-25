@@ -1,4 +1,6 @@
-﻿#include <Windows.h>
+﻿#define _CRT_SECURE_NO_WARNINGS
+
+#include <Windows.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <tchar.h>
@@ -8,7 +10,11 @@
 /*TODO list:
 - Add IOCP support if needed
 + Think about modified files : 0xC0000034 STATUS_OBJECT_NAME_NOT_FOUND
-- Why we leak file handles?
++ Exclude backup path from monitored
+- Solve backup duplication
+- Move stuff to common lib
++ Temporary generation
+- More informative errors
 */
 
 struct
@@ -17,6 +23,8 @@ struct
     wchar_t*         SourceDir;
     wchar_t*         DestTempDir;
     wchar_t*         DestBackupDir;
+    wchar_t*         ExcludedPath;
+    size_t           ExcludedPathLen;
     CRITICAL_SECTION FilesContextCS;
     AVL_TREE         FilesContext;
 } g_MonitorContext;
@@ -133,7 +141,7 @@ bool SetPrivileges(LPCSTR Privilege, BOOL Enable)
     return result;
 }
 
-HANDLE CreateHardLinkInternal(const wchar_t* DestinationFile, const wchar_t* SourceFile)
+HANDLE CreateHardLinkInternal(const wchar_t* DestinationFile, const wchar_t* SourceFile, bool deleteFlag = true)
 {// Is it possible to replace NtCreateFile to CreateFile??
  // TODO: remove handle from routine
     UNICODE_STRING destPath = {}, srcPath = {};
@@ -190,7 +198,7 @@ HANDLE CreateHardLinkInternal(const wchar_t* DestinationFile, const wchar_t* Sou
 
         memcpy(info->FileName, destPath.Buffer, sourceSize);
         info->FileNameLength = sourceSize;
-        info->ReplaceIfExists = FALSE;
+        info->ReplaceIfExists = TRUE;
         info->RootDirectory = NULL;
 
         status = NtSetInformationFile(file, &ioStatus, info, buffSize, FileLinkInformation);
@@ -208,18 +216,23 @@ HANDLE CreateHardLinkInternal(const wchar_t* DestinationFile, const wchar_t* Sou
     {
         fileHL = CreateFileW(
             DestinationFile,
-            SYNCHRONIZE | FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES | DELETE,
+            SYNCHRONIZE | FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES | (deleteFlag ? DELETE : 0),
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            NULL, OPEN_EXISTING, FILE_FLAG_DELETE_ON_CLOSE, NULL
+            NULL, OPEN_EXISTING, (deleteFlag ? FILE_FLAG_DELETE_ON_CLOSE : 0), NULL
         );
 
-        if (fileHL != INVALID_HANDLE_VALUE)
+        if (deleteFlag && fileHL == INVALID_HANDLE_VALUE)
+        {
+        
             fileHL = CreateFileW(
                 DestinationFile,
                 SYNCHRONIZE | FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES,
                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                 NULL, OPEN_EXISTING, 0, NULL
             );
+            if (fileHL == INVALID_HANDLE_VALUE)
+                printf("Error, CreateFileW(%S) failed, code %X\n", DestinationFile, GetLastError());
+        }
     }
 
     if (file != INVALID_HANDLE_VALUE)
@@ -305,13 +318,26 @@ bool CreateDir(wchar_t* DirPath)
 
 // =============================================
 
+bool IsPathExcluded(const wchar_t* Path)
+{
+    if (!g_MonitorContext.ExcludedPath)
+        return false;
+
+    return (_wcsnicmp(g_MonitorContext.ExcludedPath, Path, g_MonitorContext.ExcludedPathLen) == 0);
+}
+
 bool CreateTemporaryBackup(const wchar_t* SourceFile)
 {
     FileContext fileContext;
     wchar_t tempFile[MAX_PATH + 1];
     wchar_t* fullSourcePath = 0;
-    size_t fullStrSize;
     bool result = false;
+
+    if (IsPathExcluded(SourceFile))
+    {
+        printf("File skipped: %S\n", SourceFile);
+        return true;
+    }
 
     if (GetTempFileNameW(g_MonitorContext.DestTempDir, L"backup_", 0, tempFile) == 0)
     {
@@ -323,8 +349,6 @@ bool CreateTemporaryBackup(const wchar_t* SourceFile)
 
     do
     {
-        DeleteFileW(tempFile); // OMG!
-
         fullSourcePath = AllocateString(g_MonitorContext.SourceDir, SourceFile);
         if (!fullSourcePath)
         {
@@ -412,14 +436,7 @@ bool RestoreBackupFromTemp(FileContext* FileContext, wchar_t* RestoredFilePath)
     if (!isDirReady)
         return false;
 
-    /*if (!CopyFileW(FileContext->TempFileName, RestoredFilePath, TRUE))
-    {
-        //TODO: retry create file with different name
-        printf("Error, can't restore file '%S', code %d\n", RestoredFilePath, GetLastError());
-        return false;
-    }*/
-
-    restored = CreateHardLinkInternal(RestoredFilePath, FileContext->TempFileName);
+    restored = CreateHardLinkInternal(RestoredFilePath, FileContext->TempFileName, false);
     if (restored == INVALID_HANDLE_VALUE)
         return false;
 
@@ -436,6 +453,12 @@ bool UpgradeBackupToConstant(const wchar_t* SourceFile)
     bool result = false;
     bool found = false;
 
+    if (IsPathExcluded(SourceFile))
+    {
+        printf("File skipped: %S\n", SourceFile);
+        return true;
+    }
+
     memset(&lookFileContext, 0, sizeof(lookFileContext));
 
     lookFileContext.Key = AllocateString(SourceFile, NULL, true);
@@ -448,7 +471,7 @@ bool UpgradeBackupToConstant(const wchar_t* SourceFile)
     fileContext = (FileContext*)FindAVLElement(&g_MonitorContext.FilesContext, &lookFileContext);
     if (!fileContext)
     {
-        printf("Error, can't find a context for the following file '%S'\n", SourceFile);
+        //printf("Error, can't find a context for the following file '%S'\n", SourceFile);
         goto ReleaseBlock;
     }
 
@@ -464,6 +487,7 @@ bool UpgradeBackupToConstant(const wchar_t* SourceFile)
     if (!RestoreBackupFromTemp(fileContext, restoredFilePath))
         goto ReleaseBlock;
 
+    printf("File backuped: %S\n", SourceFile);
     result = true;
 
 ReleaseBlock:
@@ -499,6 +523,155 @@ void ReleaseBackupMonitorContext()
     DestroyAVLTree(&g_MonitorContext.FilesContext);
 }
 
+bool InitMonitoredDirContext(const wchar_t* SourceDir)
+{
+    g_MonitorContext.SourceDirHandle =
+        CreateFileW(
+            SourceDir,
+            FILE_LIST_DIRECTORY,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            NULL,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            NULL
+        );
+    if (g_MonitorContext.SourceDirHandle == INVALID_HANDLE_VALUE)
+    {
+        printf("Error, can't open directory '%S', code %d\n", SourceDir, GetLastError());
+        return false;
+    }
+
+    g_MonitorContext.SourceDir = AllocateString(SourceDir, L"\\");
+    if (!g_MonitorContext.SourceDir)
+    {
+        printf("Error, can't prepare source directory path\n");
+        return false;
+    }
+
+    return true;
+}
+
+bool InitBackupDirContext(wchar_t* BackupDir)
+{
+    g_MonitorContext.DestTempDir = AllocateString(BackupDir, L"\\temp");
+    if (!g_MonitorContext.DestTempDir)
+    {
+        printf("Error, can't prepare temporary directory path\n");
+        return false;
+    }
+
+    g_MonitorContext.DestBackupDir = AllocateString(BackupDir, L"\\backup\\");
+    if (!g_MonitorContext.DestBackupDir)
+    {
+        printf("Error, can't prepare backup directory path\n");
+        return false;
+    }
+
+    return true;
+}
+
+bool CreateBackupDir(wchar_t* BackupDir)
+{
+    if (!CreateDir(BackupDir))
+        return false;
+
+    if (!CreateDirectoryW(g_MonitorContext.DestTempDir, NULL) && GetLastError() != ERROR_ALREADY_EXISTS)
+    {
+        printf("Error, can't create temporary directory '%S', code %d\n", g_MonitorContext.DestTempDir, GetLastError());
+        return false;
+    }
+
+    if (!CreateDirectoryW(g_MonitorContext.DestBackupDir, NULL) && GetLastError() != ERROR_ALREADY_EXISTS)
+    {
+        printf("Error, can't create backup directory '%S', code %d\n", g_MonitorContext.DestBackupDir, GetLastError());
+        return false;
+    }
+
+    return true;
+}
+
+void SetExcludedPath(const wchar_t* SourceDir, wchar_t* BackupDir)
+{
+    size_t i;
+
+    for (i = 0; SourceDir[i]; i++)
+    {
+        if (!BackupDir[i])
+            return;
+
+        if (SourceDir[i] != BackupDir[i])
+            return;
+    }
+
+    if (BackupDir[i] != L'\0' && BackupDir[i] != '\\')
+        return;
+
+    if (BackupDir[i] == '\\')
+        i++;
+
+    g_MonitorContext.ExcludedPath = AllocateString(BackupDir + i, L"\\");
+    g_MonitorContext.ExcludedPathLen = wcslen(g_MonitorContext.ExcludedPath);
+}
+
+bool InitExcludedPath(const wchar_t* SourceDir, const wchar_t* BackupDir)
+{
+    HANDLE backupDirHandle = INVALID_HANDLE_VALUE;
+    HANDLE monitoredDirHandle = INVALID_HANDLE_VALUE;
+    wchar_t fileInfoBuf[2][MAX_PATH * 2];
+    PFILE_NAME_INFO monitoredFileInfo = (PFILE_NAME_INFO)fileInfoBuf[0];
+    PFILE_NAME_INFO backupFileInfo = (PFILE_NAME_INFO)fileInfoBuf[1];
+    bool result = true;
+
+    g_MonitorContext.ExcludedPath = NULL;
+
+    monitoredDirHandle =
+        CreateFileW(
+            SourceDir,
+            FILE_LIST_DIRECTORY,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            NULL,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            NULL
+        );
+    if (monitoredDirHandle == INVALID_HANDLE_VALUE)
+        goto ReleaseBlock;
+
+    if (!GetFileInformationByHandleEx(monitoredDirHandle, FileNameInfo, fileInfoBuf[0], sizeof(fileInfoBuf[0]) - sizeof(wchar_t)))
+        goto ReleaseBlock;
+
+    backupDirHandle =
+        CreateFileW(
+            BackupDir,
+            FILE_LIST_DIRECTORY,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            NULL,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            NULL
+        );
+    if (backupDirHandle == INVALID_HANDLE_VALUE)
+        goto ReleaseBlock;
+
+    if (!GetFileInformationByHandleEx(backupDirHandle, FileNameInfo, fileInfoBuf[1], sizeof(fileInfoBuf[1]) - sizeof(wchar_t)))
+        goto ReleaseBlock;
+
+    monitoredFileInfo->FileName[monitoredFileInfo->FileNameLength / sizeof(wchar_t)] = L'\0';
+    backupFileInfo->FileName[backupFileInfo->FileNameLength / sizeof(wchar_t)] = L'\0';
+
+    SetExcludedPath(monitoredFileInfo->FileName, backupFileInfo->FileName);
+
+ReleaseBlock:
+
+    if (backupDirHandle != INVALID_HANDLE_VALUE)
+        CloseHandle(backupDirHandle);
+
+    if (monitoredDirHandle != INVALID_HANDLE_VALUE)
+        CloseHandle(monitoredDirHandle);
+
+    return result;
+}
+
 bool InitBackupMonitorContext(const wchar_t* SourceDir, wchar_t* BackupDir)
 {
     bool result = false;
@@ -507,63 +680,21 @@ bool InitBackupMonitorContext(const wchar_t* SourceDir, wchar_t* BackupDir)
 
     InitializeAVLTree(&g_MonitorContext.FilesContext, AVLTreeAllocate, AVLTreeFree, AVLTreeCompare);
 
-    if (!CreateDir(BackupDir))
-        return false;
+    if (!InitMonitoredDirContext(SourceDir))
+        goto ReleaseBlock;
 
-    do
-    {
-        g_MonitorContext.SourceDirHandle =
-            CreateFileW(
-                SourceDir,
-                FILE_LIST_DIRECTORY,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                NULL,
-                OPEN_EXISTING,
-                FILE_FLAG_BACKUP_SEMANTICS,
-                NULL
-            );
-        if (g_MonitorContext.SourceDirHandle == INVALID_HANDLE_VALUE)
-        {
-            printf("Error, can't open directory '%S', code %d\n", SourceDir, GetLastError());
-            break;
-        }
+    if (!InitBackupDirContext(BackupDir))
+        goto ReleaseBlock;
 
-        g_MonitorContext.SourceDir = AllocateString(SourceDir, L"\\");
-        if (!g_MonitorContext.SourceDir)
-        {
-            printf("Error, can't prepare source directory path\n");
-            break;
-        }
+    if (!CreateBackupDir(BackupDir))
+        goto ReleaseBlock;
 
-        g_MonitorContext.DestTempDir = AllocateString(BackupDir, L"\\temp");
-        if (!g_MonitorContext.DestTempDir)
-        {
-            printf("Error, can't prepare temporary directory path\n");
-            break;
-        }
+    if (!InitExcludedPath(SourceDir, BackupDir))
+        goto ReleaseBlock;
 
-        if (!CreateDirectoryW(g_MonitorContext.DestTempDir, NULL) && GetLastError() != ERROR_ALREADY_EXISTS)
-        {
-            printf("Error, can't create temporary directory '%S', code %d\n", g_MonitorContext.DestTempDir, GetLastError());
-            break;
-        }
+    result = true;
 
-        g_MonitorContext.DestBackupDir = AllocateString(BackupDir, L"\\backup\\");
-        if (!g_MonitorContext.DestBackupDir)
-        {
-            printf("Error, can't prepare backup directory path\n");
-            break;
-        }
-
-        if (!CreateDirectoryW(g_MonitorContext.DestBackupDir, NULL) && GetLastError() != ERROR_ALREADY_EXISTS)
-        {
-            printf("Error, can't create backup directory '%S', code %d\n", g_MonitorContext.DestBackupDir, GetLastError());
-            break;
-        }
-
-        result = true;
-    }
-    while (false);
+ReleaseBlock:
 
     if (!result)
         ReleaseBackupMonitorContext();
@@ -685,45 +816,6 @@ int wmain(int argc, wchar_t* argv[])
     getchar();
 
     StopBackupMonitor();
-
-    /*AVL_TREE tree;
-    int value;
-    void* ptr;
-
-    InitializeAVLTree(&tree, AVL_ALLOCATE_CALLBACK2, AVL_FREE_CALLBACK2, AVL_COMPARE_CALLBACK2);
-
-    value = 5;
-    ptr = InsertAVLElement(&tree, &value, sizeof(value));
-
-    value = 6;
-    ptr = InsertAVLElement(&tree, &value, sizeof(value));
-    value = 7;
-    ptr = InsertAVLElement(&tree, &value, sizeof(value));
-    ptr = InsertAVLElement(&tree, &value, sizeof(value));
-    value = 8;
-    ptr = InsertAVLElement(&tree, &value, sizeof(value));
-    value = 1;
-    ptr = InsertAVLElement(&tree, &value, sizeof(value));
-    value = 2;
-    ptr = InsertAVLElement(&tree, &value, sizeof(value));
-    value = 3;
-    ptr = InsertAVLElement(&tree, &value, sizeof(value));
-    value = 4;
-    ptr = InsertAVLElement(&tree, &value, sizeof(value));
-
-    bool res;
-
-    value = 3;
-    res = RemoveAVLElement(&tree, &value);
-    res = RemoveAVLElement(&tree, &value);
-
-    value = 4;
-    int* a = (int*)FindAVLElement(&tree, &value);
-
-    value = 41;
-    a = (int*)FindAVLElement(&tree, &value);
-
-    DestroyAVLTree(&tree);*/
 
     return 0;
 }
