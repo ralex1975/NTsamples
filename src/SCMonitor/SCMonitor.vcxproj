@@ -69,7 +69,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
     <OutDir>$(SolutionDir)..\build\$(Configuration)\x86\</OutDir>
-    <IntDir>$(SolutionDir)..\build\intermediate\$(Configuration)\</IntDir>
+    <IntDir>$(SolutionDir)..\build\intermediate\$(Configuration)\$(ProjectName)\</IntDir>
     <IncludePath>$(SolutionDir)..\libs;$(IncludePath)</IncludePath>
     <LibraryPath>$(SolutionDir)..\libs;$(LibraryPath)</LibraryPath>
   </PropertyGroup>

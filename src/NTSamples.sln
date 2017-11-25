@@ -4,16 +4,27 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 VisualStudioVersion = 12.0.21005.1
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SCMonitor", "SCMonitor\SCMonitor.vcxproj", "{B6942D7E-0A54-4D73-BE99-4407F6372B3D}"
+	ProjectSection(ProjectDependencies) = postProject
+		{A85D0361-5393-46F5-9522-2D7E9E8C9EDC} = {A85D0361-5393-46F5-9522-2D7E9E8C9EDC}
+	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Services", "Services", "{F4238C34-B561-4BC0-BFFA-CFAAF7DDB66F}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "File System", "File System", "{125E84AE-3A2F-4EFC-B3B2-85B73A14874E}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BackupDeleted", "BackupDeleted\BackupDeleted.vcxproj", "{A51636BE-1D9B-4A13-B360-34AC9B447D48}"
+	ProjectSection(ProjectDependencies) = postProject
+		{A85D0361-5393-46F5-9522-2D7E9E8C9EDC} = {A85D0361-5393-46F5-9522-2D7E9E8C9EDC}
+	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Misc", "Misc", "{0963A201-3A3F-47DB-8CD4-94EF916A14DD}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Sample", "Sample\Sample.vcxproj", "{0CF4764A-8330-4649-8AEF-48EA25DFBB84}"
+	ProjectSection(ProjectDependencies) = postProject
+		{A85D0361-5393-46F5-9522-2D7E9E8C9EDC} = {A85D0361-5393-46F5-9522-2D7E9E8C9EDC}
+	EndProjectSection
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CommonLib", "CommonLib\CommonLib.vcxproj", "{A85D0361-5393-46F5-9522-2D7E9E8C9EDC}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -47,6 +58,14 @@ Global
 		{0CF4764A-8330-4649-8AEF-48EA25DFBB84}.Release|Win32.Build.0 = Release|Win32
 		{0CF4764A-8330-4649-8AEF-48EA25DFBB84}.Release|x64.ActiveCfg = Release|x64
 		{0CF4764A-8330-4649-8AEF-48EA25DFBB84}.Release|x64.Build.0 = Release|x64
+		{A85D0361-5393-46F5-9522-2D7E9E8C9EDC}.Debug|Win32.ActiveCfg = Debug|Win32
+		{A85D0361-5393-46F5-9522-2D7E9E8C9EDC}.Debug|Win32.Build.0 = Debug|Win32
+		{A85D0361-5393-46F5-9522-2D7E9E8C9EDC}.Debug|x64.ActiveCfg = Debug|x64
+		{A85D0361-5393-46F5-9522-2D7E9E8C9EDC}.Debug|x64.Build.0 = Debug|x64
+		{A85D0361-5393-46F5-9522-2D7E9E8C9EDC}.Release|Win32.ActiveCfg = Release|Win32
+		{A85D0361-5393-46F5-9522-2D7E9E8C9EDC}.Release|Win32.Build.0 = Release|Win32
+		{A85D0361-5393-46F5-9522-2D7E9E8C9EDC}.Release|x64.ActiveCfg = Release|x64
+		{A85D0361-5393-46F5-9522-2D7E9E8C9EDC}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -55,5 +74,6 @@ Global
 		{B6942D7E-0A54-4D73-BE99-4407F6372B3D} = {F4238C34-B561-4BC0-BFFA-CFAAF7DDB66F}
 		{A51636BE-1D9B-4A13-B360-34AC9B447D48} = {125E84AE-3A2F-4EFC-B3B2-85B73A14874E}
 		{0CF4764A-8330-4649-8AEF-48EA25DFBB84} = {0963A201-3A3F-47DB-8CD4-94EF916A14DD}
+		{A85D0361-5393-46F5-9522-2D7E9E8C9EDC} = {0963A201-3A3F-47DB-8CD4-94EF916A14DD}
 	EndGlobalSection
 EndGlobal

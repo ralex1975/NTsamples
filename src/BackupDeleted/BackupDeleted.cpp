@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <tchar.h>
 #include "ntdef.h"
-#include "AVLTree.h"
+#include "..\CommonLib\AVLTree.h"
 
 /*TODO list:
 - Add IOCP support if needed
@@ -141,7 +141,7 @@ bool SetPrivileges(LPCSTR Privilege, BOOL Enable)
     return result;
 }
 
-HANDLE CreateHardLinkInternal(const wchar_t* DestinationFile, const wchar_t* SourceFile, bool deleteFlag = true)
+HANDLE CreateHardLinkInternal(const wchar_t* DestinationFile, const wchar_t* SourceFile, bool deleteFlag = false)
 {// Is it possible to replace NtCreateFile to CreateFile??
  // TODO: remove handle from routine
     UNICODE_STRING destPath = {}, srcPath = {};
