@@ -208,7 +208,7 @@ bool RestoreBackupFromTemp(FileContext* FileContext, wchar_t* RestoredFilePath)
     if (GetLastError() != ERROR_ALREADY_EXISTS)
         return false;
 
-    // If file with the same name exists we should try to find out different name for restoration
+    // If a file with the same name exists we should try to find out a different name for a restoration
 
     for (i = 1; i < 10000; i++)
     {
@@ -382,6 +382,7 @@ bool CreateBackupDir(wchar_t* BackupDir)
 void SetExcludedPath(const wchar_t* SourceDir, wchar_t* BackupDir)
 {
     size_t i;
+    bool isExcludable = false;
 
     for (i = 0; SourceDir[i]; i++)
     {
@@ -392,7 +393,12 @@ void SetExcludedPath(const wchar_t* SourceDir, wchar_t* BackupDir)
             return;
     }
 
-    if (BackupDir[i] != L'\0' && BackupDir[i] != '\\')
+    if (i > 0 && SourceDir[i - 1] == L'\\' && BackupDir[i - 1] == L'\\')
+        isExcludable = true;
+    else if (BackupDir[i] == L'\0' || BackupDir[i] == L'\\')
+        isExcludable = true;
+    
+    if (!isExcludable)
         return;
 
     if (BackupDir[i] == '\\')
@@ -493,16 +499,17 @@ ReleaseBlock:
 
 bool StartBackupMonitor(wchar_t* SourceDir, wchar_t* BackupDir)
 {
+    enum { ChangeInformationBlockSize = 0x1000 };
+    PFILE_NOTIFY_INFORMATION changeInfo;
+    DWORD returned;
+
     if (!SetPrivileges("SeCreateSymbolicLinkPrivilege", TRUE))
         return false;
 
     if (!InitBackupMonitorContext(SourceDir, BackupDir))
         return false;
-
-    enum { ChangeInformationBlockSize = 0x1000 };
-    PFILE_NOTIFY_INFORMATION changeInfo = (PFILE_NOTIFY_INFORMATION)::VirtualAlloc(NULL, ChangeInformationBlockSize, MEM_COMMIT, PAGE_READWRITE);
-    DWORD returned;
-
+    
+    changeInfo = (PFILE_NOTIFY_INFORMATION)::VirtualAlloc(NULL, ChangeInformationBlockSize, MEM_COMMIT, PAGE_READWRITE);
     if (!changeInfo)
     {
         printf("Error, can't allocate change information block, code: %d\n", ::GetLastError());
