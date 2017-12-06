@@ -3,7 +3,7 @@
 // =============================================
 //  Security
 
-bool SetPrivileges(const char* Privilege, bool Enable);
+bool SetTokenPrivilege(const char* Privilege, bool Enable);
 
 // =============================================
 //  File System

@@ -291,7 +291,7 @@ void ServicesMonitor::InsertService(const wchar_t* serviceName, const SERVICE_ST
     auto result = m_services.insert(std::make_pair(serviceName, serviceContext));
     if (!result.second)
     {
-        // The service already in map therefire just update the status
+        // The service already in map therefore just update the status
         auto it = *result.first;
         it.second.status = serviceContext.status;
     }

@@ -3,9 +3,11 @@
   <ItemGroup>
     <ClCompile Include="AVLTree.cpp" />
     <ClCompile Include="CommonLib.cpp" />
+    <ClCompile Include="ConsolePrinter.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AVLTree.h" />
     <ClInclude Include="CommonLib.h" />
+    <ClInclude Include="ConsolePrinter.h" />
   </ItemGroup>
 </Project>

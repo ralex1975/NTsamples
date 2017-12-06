@@ -21,10 +21,12 @@
   <ItemGroup>
     <ClCompile Include="AVLTree.cpp" />
     <ClCompile Include="CommonLib.cpp" />
+    <ClCompile Include="ConsolePrinter.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AVLTree.h" />
     <ClInclude Include="CommonLib.h" />
+    <ClInclude Include="ConsolePrinter.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{A85D0361-5393-46F5-9522-2D7E9E8C9EDC}</ProjectGuid>

@@ -503,7 +503,7 @@ bool StartBackupMonitor(wchar_t* SourceDir, wchar_t* BackupDir)
     PFILE_NOTIFY_INFORMATION changeInfo;
     DWORD returned;
 
-    if (!SetPrivileges("SeCreateSymbolicLinkPrivilege", TRUE))
+    if (!SetTokenPrivilege("SeCreateSymbolicLinkPrivilege", TRUE))
         return false;
 
     if (!InitBackupMonitorContext(SourceDir, BackupDir))
@@ -538,6 +538,9 @@ bool StartBackupMonitor(wchar_t* SourceDir, wchar_t* BackupDir)
 
         while (true)
         {
+            if (currentInfo->FileNameLength + sizeof(FILE_NOTIFY_INFORMATION) + sizeof(WCHAR) > ChangeInformationBlockSize)
+                break;
+
             switch (currentInfo->Action)
             {
             case FILE_ACTION_ADDED:
@@ -559,11 +562,6 @@ bool StartBackupMonitor(wchar_t* SourceDir, wchar_t* BackupDir)
 
             currentInfo->FileName[currentInfo->FileNameLength / sizeof(WCHAR)] = L'\0';
             printf("%S\n", currentInfo->FileName);
-
-            if (currentInfo->FileNameLength + sizeof(FILE_NOTIFY_INFORMATION) + sizeof(WCHAR) > ChangeInformationBlockSize)
-                break;
-
-            currentInfo->FileName[currentInfo->FileNameLength / sizeof(WCHAR)] = L'\0';
 
             if (currentInfo->Action == FILE_ACTION_ADDED || currentInfo->Action == FILE_ACTION_RENAMED_NEW_NAME)
                 CreateTemporaryBackup(currentInfo->FileName);

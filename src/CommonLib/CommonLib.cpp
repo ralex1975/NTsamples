@@ -4,7 +4,7 @@
 
 // =============================================
 
-bool SetPrivileges(const char* Privilege, bool Enable)
+bool SetTokenPrivilege(const char* Privilege, bool Enable)
 {
     bool result = false;
     HANDLE token = NULL;
@@ -40,7 +40,7 @@ bool IsDirExists(const wchar_t* DirPath)
 {
     DWORD attribs;
 
-    attribs = GetFileAttributesW(DirPath);
+    attribs = ::GetFileAttributesW(DirPath);
     if (attribs == INVALID_FILE_ATTRIBUTES)
         return false;
 
@@ -51,7 +51,7 @@ bool IsFileExists(const wchar_t* FilePath)
 {
     DWORD attribs;
 
-    attribs = GetFileAttributesW(FilePath);
+    attribs = ::GetFileAttributesW(FilePath);
     if (attribs == INVALID_FILE_ATTRIBUTES)
         return false;
 
@@ -66,10 +66,10 @@ static bool CreateDirRecursively(wchar_t* DirPath, size_t DirPathLen)
     if (IsDirExists(DirPath))
         return true;
 
-    if (CreateDirectoryW(DirPath, NULL))
+    if (::CreateDirectoryW(DirPath, NULL))
         return true;
 
-    if (GetLastError() != ERROR_PATH_NOT_FOUND)
+    if (::GetLastError() != ERROR_PATH_NOT_FOUND)
         return false;
 
     // Attempt to create dir recursively
@@ -89,7 +89,7 @@ static bool CreateDirRecursively(wchar_t* DirPath, size_t DirPathLen)
         }
     }
 
-    if (!CreateDirectoryW(DirPath, NULL) && GetLastError() != ERROR_ALREADY_EXISTS)
+    if (!::CreateDirectoryW(DirPath, NULL) && GetLastError() != ERROR_ALREADY_EXISTS)
         result = false;
 
     return result;
