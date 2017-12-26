@@ -20,3 +20,10 @@ bool CreateHardLinkToExistingFile(const wchar_t* DestinationFile, const wchar_t*
 
 wchar_t* BuildWideString(const wchar_t* String ...); // The last variadic parameter should be always NULL
 void FreeWideString(const wchar_t* String);
+
+// =============================================
+//  Numeric
+
+size_t AlignToTop(size_t What, size_t Align);
+size_t AlignToBottom(size_t What, size_t Align);
+

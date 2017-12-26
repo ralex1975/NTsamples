@@ -1,5 +1,8 @@
 #include "ConsolePrinter.h"
+#include "BufferQueue.h"
 #include <Windows.h>
+#include <stdarg.h>
+#include <wchar.h>
 
 struct ConsoleContext
 {
@@ -14,7 +17,17 @@ struct AsyncConsoleContext
     HANDLE startStopEvent;
     HANDLE stopDispatcherEvent;
     HANDLE dispatcher;
+    void*  bufferedQueue;
+    bool   terminating;
 };
+
+struct MessageBlock
+{
+    PrintColorsEnum color;
+    wchar_t message[256];
+};
+
+static _declspec(thread) AsyncConsoleContext* st_AssignedContext = NULL;
 
 static bool InitConsoleContext(ConsoleContext* Context)
 {
@@ -33,19 +46,100 @@ static bool InitConsoleContext(ConsoleContext* Context)
     return true;
 }
 
-static DWORD WINAPI AsyncConsoleDispatcher(LPVOID lpParameter)
+static WORD ConvertColorToAttribs(ConsoleContext* Context, PrintColorsEnum Color)
 {
-    AsyncConsoleContext* context = (AsyncConsoleContext*)lpParameter;
+    WORD attribs;
+
+    switch (Color)
+    {
+    case Black:
+        attribs = 0;
+        break;
+    case DarkBlue:
+        attribs = FOREGROUND_BLUE;
+        break;
+    case DarkGreen:
+        attribs = FOREGROUND_GREEN;
+        break;
+    case DarkCyan:
+        attribs = FOREGROUND_GREEN | FOREGROUND_BLUE;
+        break;
+    case DarkRed:
+        attribs = FOREGROUND_RED;
+        break;
+    case DarkMagenta:
+        attribs = FOREGROUND_RED | FOREGROUND_BLUE;
+        break;
+    case DarkYellow:
+        attribs = FOREGROUND_RED | FOREGROUND_GREEN;
+        break;
+    case DarkGrey:
+        attribs = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
+        break;
+    case Gray:
+        attribs = FOREGROUND_INTENSITY;
+        break;
+    case Blue:
+        attribs = FOREGROUND_INTENSITY | FOREGROUND_BLUE;
+        break;
+    case Green:
+        attribs = FOREGROUND_INTENSITY | FOREGROUND_GREEN;
+        break;
+    case Cyan:
+        attribs = FOREGROUND_INTENSITY | FOREGROUND_GREEN | FOREGROUND_BLUE;
+        break;
+    case Red:
+        attribs = FOREGROUND_INTENSITY | FOREGROUND_RED;
+        break;
+    case Magenta:
+        attribs = FOREGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_BLUE;
+        break;
+    case Yellow:
+        attribs = FOREGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_GREEN;
+        break;
+    case White:
+        attribs = FOREGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
+        break;
+    default:
+        attribs = Context->defaultColor;
+    }
+
+    return attribs;
+}
+
+static void SetConsoleColor(ConsoleContext* Context, PrintColorsEnum Color)
+{
+    SetConsoleTextAttribute(Context->output, ConvertColorToAttribs(Context, Color));
+}
+
+static void PrintFromBufferToConsole(void* Data, size_t DataSize, void* Parameter)
+{
+    AsyncConsoleContext* context = (AsyncConsoleContext*)Parameter;
+    MessageBlock* block = (MessageBlock*)Data;
+
+    SetConsoleColor(&context->console, block->color);
+
+    wprintf(block->message);
+
+    SetConsoleColor(&context->console, block->color);
+}
+
+static DWORD WINAPI AsyncConsoleDispatcher(LPVOID Parameter)
+{
+    AsyncConsoleContext* context = (AsyncConsoleContext*)Parameter;
 
     ::SetEvent(context->startStopEvent);
 
     while (true)
     {
         DWORD error = ::WaitForMultipleObjects(1, &context->stopDispatcherEvent, FALSE, INFINITE);
-        if (error == WAIT_OBJECT_0)
+        if (error != WAIT_OBJECT_0)
             break;
 
-        //TODO: console buffer processing
+        if (context->terminating)
+            break;
+
+        PopAllDataFromBufferQueue(context->bufferedQueue, PrintFromBufferToConsole, context);
     }
 
     ::SetEvent(context->startStopEvent);
@@ -80,6 +174,12 @@ void* CreateAsyncConsolePrinterContext()
     if (::WaitForSingleObject(context->startStopEvent, INFINITE) != WAIT_OBJECT_0)
         goto ReleaseBlock;
 
+    context->bufferedQueue = CreateBufferQueue();
+    if (!context->bufferedQueue)
+        goto ReleaseBlock;
+
+    context->terminating = false;
+
     result = true;
 
 ReleaseBlock:
@@ -97,6 +197,9 @@ ReleaseBlock:
             ::TerminateThread(context->dispatcher, 0x0BADBAD0);
             ::CloseHandle(context->dispatcher);
         }
+
+        if (context->bufferedQueue)
+            DestroyBufferQueue(context->bufferedQueue);
     }
 
     return context;
@@ -106,6 +209,8 @@ void DestroyAsyncConsolePrinterContext(void* Context)
 {
     AsyncConsoleContext* context = (AsyncConsoleContext*)Context;
     DWORD error;
+
+    context->terminating = true;
 
     ::SetEvent(context->stopDispatcherEvent);
 
@@ -117,23 +222,56 @@ void DestroyAsyncConsolePrinterContext(void* Context)
     ::CloseHandle(context->startStopEvent);
     ::CloseHandle(context->stopDispatcherEvent);
 
+    DestroyBufferQueue(context->bufferedQueue);
+
     free(context);
 }
 
+
 void AssociateThreadWithConsolePrinterContext(void* Context)
 {
-    AsyncConsoleContext* context = (AsyncConsoleContext*)Context;
+    st_AssignedContext = (AsyncConsoleContext*)Context;
 }
 
-static _declspec(thread) AsyncConsoleContext* st_AssignedContext = NULL;
 
 void PrintMsg(PrintColorsEnum Color, const wchar_t* Format ...)
 {
+    MessageBlock block;
+    int len;
 
+    if (!st_AssignedContext)
+        return;
+
+    va_list args;
+    va_start(args, Format);
+    len = vswprintf_s(block.message, Format, args);
+    va_end(args);
+
+    if (len < 0)
+        return;
+
+    block.color = Color;
+
+    if (PushDataToBufferQueue(st_AssignedContext->bufferedQueue, &block, FIELD_OFFSET(MessageBlock, message) + (len + 1) * sizeof(wchar_t)))
+        ::SetEvent(st_AssignedContext->stopDispatcherEvent);
 }
 
 void PrintMsgEx(void* Context, PrintColorsEnum Color, const wchar_t* Format ...)
 {
     AsyncConsoleContext* context = (AsyncConsoleContext*)Context;
+    MessageBlock block;
+    int len;
 
+    va_list args;
+    va_start(args, Format);
+    len = vswprintf_s(block.message, Format, args);
+    va_end(args);
+
+    if (len < 0)
+        return;
+
+    block.color = Color;
+
+    if (PushDataToBufferQueue(context->bufferedQueue, &block, FIELD_OFFSET(MessageBlock, message) + (len + 1) * sizeof(wchar_t)))
+        ::SetEvent(context->stopDispatcherEvent);
 }

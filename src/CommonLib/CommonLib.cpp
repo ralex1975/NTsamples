@@ -227,3 +227,18 @@ void FreeWideString(const wchar_t* String)
 {
     ::RtlFreeHeap(::GetProcessHeap(), 0, (void*)String);
 }
+
+// =============================================
+
+uintptr_t AlignToTop(uintptr_t What, uintptr_t Align)
+{
+    uintptr_t diff = (What % Align);
+    if (diff)
+        What += Align - diff;
+    return What;
+}
+
+uintptr_t AlignToBottom(uintptr_t What, uintptr_t Align)
+{
+    return What - (What % Align);
+}

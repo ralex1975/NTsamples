@@ -3,6 +3,22 @@
 enum PrintColorsEnum
 {
     Default,
+    Black,
+    DarkBlue,
+    DarkGreen,
+    DarkCyan,
+    DarkRed,
+    DarkMagenta,
+    DarkYellow,
+    DarkGrey,
+    Gray,
+    Blue,
+    Green,
+    Cyan,
+    Red,
+    Magenta,
+    Yellow,
+    White,
     MaxColor
 };
 

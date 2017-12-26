@@ -20,11 +20,13 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AVLTree.cpp" />
+    <ClCompile Include="BufferQueue.cpp" />
     <ClCompile Include="CommonLib.cpp" />
     <ClCompile Include="ConsolePrinter.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AVLTree.h" />
+    <ClInclude Include="BufferQueue.h" />
     <ClInclude Include="CommonLib.h" />
     <ClInclude Include="ConsolePrinter.h" />
   </ItemGroup>
