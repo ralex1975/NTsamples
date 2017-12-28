@@ -23,7 +23,7 @@ struct AsyncConsoleContext
 
 struct MessageBlock
 {
-    PrintColorsEnum color;
+    PrintColors color;
     wchar_t message[256];
 };
 
@@ -46,7 +46,7 @@ static bool InitConsoleContext(ConsoleContext* Context)
     return true;
 }
 
-static WORD ConvertColorToAttribs(ConsoleContext* Context, PrintColorsEnum Color)
+static WORD ConvertColorToAttribs(ConsoleContext* Context, PrintColors Color)
 {
     WORD attribs;
 
@@ -107,7 +107,7 @@ static WORD ConvertColorToAttribs(ConsoleContext* Context, PrintColorsEnum Color
     return attribs;
 }
 
-static void SetConsoleColor(ConsoleContext* Context, PrintColorsEnum Color)
+static void SetConsoleColor(ConsoleContext* Context, PrintColors Color)
 {
     SetConsoleTextAttribute(Context->output, ConvertColorToAttribs(Context, Color));
 }
@@ -147,7 +147,7 @@ static DWORD WINAPI AsyncConsoleDispatcher(LPVOID Parameter)
     return 0;
 }
 
-void* CreateAsyncConsolePrinterContext()
+ConsoleInstance CreateAsyncConsolePrinterContext()
 {
     bool result = false;
     AsyncConsoleContext* context = NULL;
@@ -205,7 +205,7 @@ ReleaseBlock:
     return context;
 }
 
-void DestroyAsyncConsolePrinterContext(void* Context)
+void DestroyAsyncConsolePrinterContext(ConsoleInstance Context)
 {
     AsyncConsoleContext* context = (AsyncConsoleContext*)Context;
     DWORD error;
@@ -228,13 +228,13 @@ void DestroyAsyncConsolePrinterContext(void* Context)
 }
 
 
-void AssociateThreadWithConsolePrinterContext(void* Context)
+void AssociateThreadWithConsolePrinterContext(ConsoleInstance Context)
 {
     st_AssignedContext = (AsyncConsoleContext*)Context;
 }
 
 
-void PrintMsg(PrintColorsEnum Color, const wchar_t* Format ...)
+void PrintMsg(PrintColors Color, const wchar_t* Format ...)
 {
     MessageBlock block;
     int len;
@@ -256,7 +256,7 @@ void PrintMsg(PrintColorsEnum Color, const wchar_t* Format ...)
         ::SetEvent(st_AssignedContext->stopDispatcherEvent);
 }
 
-void PrintMsgEx(void* Context, PrintColorsEnum Color, const wchar_t* Format ...)
+void PrintMsgEx(ConsoleInstance Context, PrintColors Color, const wchar_t* Format ...)
 {
     AsyncConsoleContext* context = (AsyncConsoleContext*)Context;
     MessageBlock block;

@@ -7,6 +7,7 @@
 #include <ntdef.h>
 #include <AVLTree.h>
 #include <CommonLib.h>
+#include <ConsolePrinter.h>
 
 /*TODO list:
 - Add IOCP support if needed
@@ -37,6 +38,8 @@ struct FileContext
     wchar_t* TempFileName;
     HANDLE   TempFile;
 };
+
+ConsoleInstance g_consoleContext = NULL;
 
 // =============================================
 
@@ -85,13 +88,13 @@ bool CreateTemporaryBackup(const wchar_t* SourceFile)
 
     if (IsPathExcluded(SourceFile))
     {
-        printf("File skipped: %S\n", SourceFile);
+        PrintMsg(PrintColors::Default, L"File skipped: %s\n", SourceFile);
         return true;
     }
 
     if (GetTempFileNameW(g_MonitorContext.DestTempDir, L"db_", 0, tempFile) == 0)
     {
-        printf("Error, can't generate temporary file name, code %d\n", GetLastError());
+        PrintMsg(PrintColors::Red, L"Error, can't generate temporary file name, code %d\n", GetLastError());
         return false;
     }
 
@@ -100,13 +103,13 @@ bool CreateTemporaryBackup(const wchar_t* SourceFile)
     fullSourcePath = BuildWideString(g_MonitorContext.SourceDir, SourceFile, NULL);
     if (!fullSourcePath)
     {
-        printf("Error, can't prepare source file name\n");
+        PrintMsg(PrintColors::Red, L"Error, can't prepare source file name\n");
         goto ReleaseBlock;
     }
 
     if (!CreateHardLinkToExistingFile(tempFile, fullSourcePath))
     {
-        printf("Error, can't create hard link, code: %d\n", GetLastError());
+        PrintMsg(PrintColors::Red, L"Error, can't create hard link, code: %d\n", GetLastError());
         goto ReleaseBlock;
     }
 
@@ -121,21 +124,21 @@ bool CreateTemporaryBackup(const wchar_t* SourceFile)
     );
     if (fileContext.TempFile == INVALID_HANDLE_VALUE)
     {
-        printf("Error, can't open hard link, code: %d\n", GetLastError());
+        PrintMsg(PrintColors::Red, L"Error, can't open hard link, code: %d\n", GetLastError());
         goto ReleaseBlock;
     }
 
     fileContext.TempFileName = BuildWideString(tempFile, NULL);
     if (!fileContext.TempFileName)
     {
-        printf("Error, can't allocate temp file name\n");
+        PrintMsg(PrintColors::Red, L"Error, can't allocate temp file name\n");
         goto ReleaseBlock;
     }
 
     fileContext.Key = BuildWideString(SourceFile, NULL);
     if (!fileContext.Key)
     {
-        printf("Error, can't allocate key string\n");
+        PrintMsg(PrintColors::Red, L"Error, can't allocate key string\n");
         goto ReleaseBlock;
     }
 
@@ -144,13 +147,13 @@ bool CreateTemporaryBackup(const wchar_t* SourceFile)
     fileContext.BackupFileName = BuildWideString(SourceFile, NULL);
     if (!fileContext.BackupFileName)
     {
-        printf("Error, can't allocate key string\n");
+        PrintMsg(PrintColors::Red, L"Error, can't allocate backup file name string\n");
         goto ReleaseBlock;
     }
 
     if (!InsertAVLElement(&g_MonitorContext.FilesContext, &fileContext, sizeof(fileContext)))
     {
-        printf("Error, can't save file cache\n");
+        PrintMsg(PrintColors::Red, L"Error, can't save file cache\n");
         goto ReleaseBlock;
     }
 
@@ -242,7 +245,7 @@ bool UpgradeBackupToConstant(const wchar_t* SourceFile)
 
     if (IsPathExcluded(SourceFile))
     {
-        printf("File skipped: %S\n", SourceFile);
+        PrintMsg(PrintColors::Default, L"File skipped: %s\n", SourceFile);
         return true;
     }
 
@@ -251,7 +254,7 @@ bool UpgradeBackupToConstant(const wchar_t* SourceFile)
     lookFileContext.Key = BuildWideString(SourceFile, NULL);
     if (!lookFileContext.Key)
     {
-        printf("Error, can't allocate file key\n");
+        PrintMsg(PrintColors::Red, L"Error, can't allocate key string\n");
         goto ReleaseBlock;
     }
 
@@ -264,7 +267,7 @@ bool UpgradeBackupToConstant(const wchar_t* SourceFile)
     restoredFilePath = BuildWideString(g_MonitorContext.DestBackupDir, SourceFile, NULL);
     if (!restoredFilePath)
     {
-        printf("Error, can't allocate restored path\n");
+        PrintMsg(PrintColors::Red, L"Error, can't allocate restored path\n");
         goto ReleaseBlock;
     }
 
@@ -273,7 +276,7 @@ bool UpgradeBackupToConstant(const wchar_t* SourceFile)
     if (!RestoreBackupFromTemp(fileContext, restoredFilePath))
         goto ReleaseBlock;
 
-    printf("File backuped: %S\n", SourceFile);
+    PrintMsg(PrintColors::Green, L"File backuped: %s\n", SourceFile);
     result = true;
 
 ReleaseBlock:
@@ -326,14 +329,14 @@ bool InitMonitoredDirContext(const wchar_t* SourceDir)
         );
     if (g_MonitorContext.SourceDirHandle == INVALID_HANDLE_VALUE)
     {
-        printf("Error, can't open directory '%S', code %d\n", SourceDir, GetLastError());
+        PrintMsg(PrintColors::Red, L"Error, can't open directory '%s', code %d\n", SourceDir, GetLastError());
         return false;
     }
 
     g_MonitorContext.SourceDir = BuildWideString(SourceDir, L"\\", NULL);
     if (!g_MonitorContext.SourceDir)
     {
-        printf("Error, can't prepare source directory path\n");
+        PrintMsg(PrintColors::Red, L"Error, can't prepare source directory path\n");
         return false;
     }
 
@@ -345,14 +348,14 @@ bool InitBackupDirContext(wchar_t* BackupDir)
     g_MonitorContext.DestTempDir = BuildWideString(BackupDir, L"\\temp", NULL);
     if (!g_MonitorContext.DestTempDir)
     {
-        printf("Error, can't prepare temporary directory path\n");
+        PrintMsg(PrintColors::Red, L"Error, can't prepare temporary directory path\n");
         return false;
     }
 
     g_MonitorContext.DestBackupDir = BuildWideString(BackupDir, L"\\backup\\", NULL);
     if (!g_MonitorContext.DestBackupDir)
     {
-        printf("Error, can't prepare backup directory path\n");
+        PrintMsg(PrintColors::Red, L"Error, can't prepare backup directory path\n");
         return false;
     }
 
@@ -366,13 +369,13 @@ bool CreateBackupDir(wchar_t* BackupDir)
 
     if (!::CreateDirectoryW(g_MonitorContext.DestTempDir, NULL) && ::GetLastError() != ERROR_ALREADY_EXISTS)
     {
-        printf("Error, can't create temporary directory '%S', code %d\n", g_MonitorContext.DestTempDir, ::GetLastError());
+        PrintMsg(PrintColors::Red, L"Error, can't create temporary directory '%s', code %d\n", g_MonitorContext.DestTempDir, ::GetLastError());
         return false;
     }
 
     if (!::CreateDirectoryW(g_MonitorContext.DestBackupDir, NULL) && ::GetLastError() != ERROR_ALREADY_EXISTS)
     {
-        printf("Error, can't create backup directory '%S', code %d\n", g_MonitorContext.DestBackupDir, ::GetLastError());
+        PrintMsg(PrintColors::Red, L"Error, can't create backup directory '%s', code %d\n", g_MonitorContext.DestBackupDir, ::GetLastError());
         return false;
     }
 
@@ -512,7 +515,7 @@ bool StartBackupMonitor(wchar_t* SourceDir, wchar_t* BackupDir)
     changeInfo = (PFILE_NOTIFY_INFORMATION)::VirtualAlloc(NULL, ChangeInformationBlockSize, MEM_COMMIT, PAGE_READWRITE);
     if (!changeInfo)
     {
-        printf("Error, can't allocate change information block, code: %d\n", ::GetLastError());
+        PrintMsg(PrintColors::Red, L"Error, can't allocate change information block, code: %d\n", ::GetLastError());
         ReleaseBackupMonitorContext();
         return false;
     }
@@ -531,7 +534,7 @@ bool StartBackupMonitor(wchar_t* SourceDir, wchar_t* BackupDir)
                 NULL, 
                 NULL))
         {
-            printf("Error, failed to read directory changes, code: %d\n", GetLastError());
+            PrintMsg(PrintColors::Red, L"Error, failed to read directory changes, code: %d\n", GetLastError());
             ReleaseBackupMonitorContext();
             return false;
         }
@@ -541,33 +544,39 @@ bool StartBackupMonitor(wchar_t* SourceDir, wchar_t* BackupDir)
             if (currentInfo->FileNameLength + sizeof(FILE_NOTIFY_INFORMATION) + sizeof(WCHAR) > ChangeInformationBlockSize)
                 break;
 
-            switch (currentInfo->Action)
-            {
-            case FILE_ACTION_ADDED:
-                printf("FILE_ACTION_ADDED ");
-                break;
-            case FILE_ACTION_RENAMED_NEW_NAME:
-                printf("FILE_ACTION_RENAMED_NEW_NAME ");
-                break;
-            case FILE_ACTION_REMOVED:
-                printf("FILE_ACTION_REMOVED ");
-                break;
-            case FILE_ACTION_RENAMED_OLD_NAME:
-                printf("FILE_ACTION_RENAMED_OLD_NAME ");
-                break;
-            default:
-                printf("UNKNOWN ");
-                break;
-            }
-
             currentInfo->FileName[currentInfo->FileNameLength / sizeof(WCHAR)] = L'\0';
-            printf("%S\n", currentInfo->FileName);
 
             if (currentInfo->Action == FILE_ACTION_ADDED || currentInfo->Action == FILE_ACTION_RENAMED_NEW_NAME)
                 CreateTemporaryBackup(currentInfo->FileName);
             else if (currentInfo->Action == FILE_ACTION_REMOVED || currentInfo->Action == FILE_ACTION_RENAMED_OLD_NAME)
                 UpgradeBackupToConstant(currentInfo->FileName);
             
+            wchar_t format[100];
+            PrintColors color = PrintColors::Default;
+
+            switch (currentInfo->Action)
+            {
+            case FILE_ACTION_ADDED:
+                wcscpy_s(format, L"FILE_ACTION_ADDED %s\n");
+                color = PrintColors::DarkGreen;
+                break;
+            case FILE_ACTION_RENAMED_NEW_NAME:
+                wcscpy_s(format, L"FILE_ACTION_RENAMED_NEW_NAME %s\n");
+                break;
+            case FILE_ACTION_REMOVED:
+                wcscpy_s(format, L"FILE_ACTION_REMOVED %s\n");
+                color = PrintColors::DarkRed;
+                break;
+            case FILE_ACTION_RENAMED_OLD_NAME:
+                wcscpy_s(format, L"FILE_ACTION_RENAMED_OLD_NAME %s\n");
+                break;
+            default:
+                wcscpy_s(format, L"UNKNOWN %s\n");
+                break;
+            }
+
+            PrintMsg(color, format, currentInfo->FileName);
+
             if (!currentInfo->NextEntryOffset)
                 break;
 
@@ -587,16 +596,25 @@ void StopBackupMonitor()
 
 int wmain(int argc, wchar_t* argv[])
 {
+    g_consoleContext = CreateAsyncConsolePrinterContext();
+    if (!g_consoleContext)
+    {
+        printf("Error, can't initialize console printer\n");
+        return 1;
+    }
+
+    AssociateThreadWithConsolePrinterContext(g_consoleContext);
+
     if (argc != 3)
     {
-        printf("Error, invalid arguments, usage: tmpbackup <src dir> <backup dir>\n");
+        PrintMsg(PrintColors::Red, L"Error, invalid arguments, usage: tmpbackup <src dir> <backup dir>\n");
         return 1;
     }
 
     if (!StartBackupMonitor(argv[1], argv[2]))
         return 2;
 
-    printf("Press ENTER to exit\n");
+    PrintMsg(PrintColors::Default, L"Press ENTER to exit\n");
     getchar();
 
     StopBackupMonitor();

@@ -1,6 +1,6 @@
 #pragma once
 
-enum PrintColorsEnum
+enum PrintColors
 {
     Default,
     Black,
@@ -22,10 +22,12 @@ enum PrintColorsEnum
     MaxColor
 };
 
-void* CreateAsyncConsolePrinterContext();
-void  DestroyAsyncConsolePrinterContext(void* context);
+typedef void* ConsoleInstance;
 
-void AssociateThreadWithConsolePrinterContext(void* context);
+ConsoleInstance CreateAsyncConsolePrinterContext();
+void  DestroyAsyncConsolePrinterContext(ConsoleInstance Context);
 
-void PrintMsg(PrintColorsEnum color, const wchar_t* format ...);
-void PrintMsgEx(void* context, PrintColorsEnum color, const wchar_t* format ...);
+void AssociateThreadWithConsolePrinterContext(ConsoleInstance Context);
+
+void PrintMsg(PrintColors Color, const wchar_t* Format ...);
+void PrintMsgEx(ConsoleInstance Context, PrintColors Color, const wchar_t* Format ...);
