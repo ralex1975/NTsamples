@@ -137,16 +137,16 @@ bool PushDataToBufferQueue(void* Context, void* Data, size_t DataSize)
         entry->size = DataSize;
         entry->alignment = 0;
 
-        memcpy(entry->data, Data, part1Size);
-        memcpy(context->buffer, (char*)Data + part1Size, part2Size);
+        memcpy(entry->data, Data, (size_t)part1Size);
+        memcpy(context->buffer, (char*)Data + part1Size, (size_t)part2Size);
     }
     else // if buffer isn't divided
     {
         index_t next = topIndex + blockSize + FIELD_OFFSET(BufferEntryHeader, data);
         size_t alignment = 0;
 
-        if (next > context->bufferSize)
-            alignment = FIELD_OFFSET(BufferEntryHeader, data) - (next - context->bufferSize);
+        if ((size_t)next > context->bufferSize)
+            alignment = FIELD_OFFSET(BufferEntryHeader, data) - ((size_t)next - context->bufferSize);
 
         entry = (BufferEntryHeader*)(context->buffer + topIndex);
         entry->size = DataSize;
@@ -179,13 +179,13 @@ bool PopDataFromBufferQueue(void* Context, void* OutputBuffer, size_t* OutputSiz
             index_t blockSize = entry->size + sizeof(BufferEntryHeader) - 1;
             index_t blockEnd = bottomIndex + blockSize;
 
-            if (blockEnd > context->bufferSize)
+            if ((size_t)blockEnd > context->bufferSize)
             {
                 index_t secondSize = blockEnd - context->bufferSize - (sizeof(BufferEntryHeader) - 1);
-                size_t firstSize = entry->size - secondSize;
+                size_t firstSize = entry->size - (size_t)secondSize;
 
                 memcpy(OutputBuffer, entry->data, firstSize);
-                memcpy((char*)OutputBuffer + firstSize, (char*)context->buffer, secondSize);
+                memcpy((char*)OutputBuffer + firstSize, (char*)context->buffer, (size_t)secondSize);
             }
             else
             {
@@ -228,10 +228,10 @@ bool PopAllDataFromBufferQueue(void* Context, PopBufferQueueRoutine Callback, vo
         blockSize = entry->size + sizeof(BufferEntryHeader) - 1;
         blockEnd  = bottomIndex + blockSize;
 
-        if (blockEnd > context->bufferSize) // if buffer is divided
+        if ((size_t)blockEnd > context->bufferSize) // if buffer is divided
         {
             index_t secondSize = blockEnd % context->bufferSize;
-            size_t firstSize = entry->size - secondSize;
+            size_t firstSize = entry->size - (size_t)secondSize;
 
             if (context->cacheSize < entry->size)
             {
@@ -244,7 +244,7 @@ bool PopAllDataFromBufferQueue(void* Context, PopBufferQueueRoutine Callback, vo
             }
 
             memcpy(context->cache, entry->data, firstSize);
-            memcpy((char*)context->cache + firstSize, (char*)context->buffer, secondSize);
+            memcpy((char*)context->cache + firstSize, (char*)context->buffer, (size_t)secondSize);
 
             Callback(context->cache, entry->size, Parameter);
         }

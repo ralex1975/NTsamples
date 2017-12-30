@@ -27,3 +27,16 @@ void FreeWideString(const wchar_t* String);
 size_t AlignToTop(size_t What, size_t Align);
 size_t AlignToBottom(size_t What, size_t Align);
 
+// =============================================
+//  Sync
+
+#ifdef _WIN64
+typedef volatile long long SpinAtom;
+#define AtomExchange InterlockedExchange64
+#else
+typedef volatile long SpinAtom;
+#define AtomExchange InterlockedExchange
+#endif
+
+void AcquireSpinLock(SpinAtom* Spinlock);
+void ReleaseSpinLock(SpinAtom* Spinlock);

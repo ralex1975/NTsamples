@@ -138,7 +138,7 @@ bool CreateHardLinkToExistingFile(const wchar_t* SourceFile, const wchar_t* Dest
     info->ReplaceIfExists = TRUE;
     info->RootDirectory = NULL;
 
-    status = ::NtSetInformationFile(file, &ioStatus, info, bufferSize, FileLinkInformation);
+    status = ::NtSetInformationFile(file, &ioStatus, info, (ULONG)bufferSize, FileLinkInformation);
     if (!NT_SUCCESS(status))
         goto ReleaseBlock;
 
@@ -241,4 +241,29 @@ uintptr_t AlignToTop(uintptr_t What, uintptr_t Align)
 uintptr_t AlignToBottom(uintptr_t What, uintptr_t Align)
 {
     return What - (What % Align);
+}
+
+// =============================================
+
+void AcquireSpinLock(SpinAtom* Spinlock)
+{
+    uintptr_t i;
+    bool acquired = false;
+
+    for (i = 0; i < 10000; i++)
+    {
+        if (AtomExchange(Spinlock, 1) == 1)
+            return;
+    }
+
+    do
+    {
+        NtYieldExecution();
+    } 
+    while (AtomExchange(Spinlock, 1) != 1);
+}
+
+void ReleaseSpinLock(SpinAtom* Spinlock)
+{
+
 }

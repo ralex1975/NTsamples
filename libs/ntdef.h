@@ -245,6 +245,7 @@ typedef enum _MEMORY_INFORMATION_CLASS {
 	MemoryBasicInformation
 } MEMORY_INFORMATION_CLASS;
 
+NTSTATUS NTAPI NtYieldExecution(void);
 
 // File system
 

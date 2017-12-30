@@ -24,7 +24,7 @@ enum PrintColors
 
 typedef void* ConsoleInstance;
 
-ConsoleInstance CreateAsyncConsolePrinterContext();
+ConsoleInstance CreateAsyncConsolePrinterContext(PrintColors DefaultColor = PrintColors::Default, bool UseAsDefault = false);
 void  DestroyAsyncConsolePrinterContext(ConsoleInstance Context);
 
 void AssociateThreadWithConsolePrinterContext(ConsoleInstance Context);

@@ -17,6 +17,8 @@
 + Move stuff to common lib
 + Temporary generation
 - More informative errors
+- Investigate dir sharing violation
+- Investigate non-tracked deletion
 */
 
 struct
@@ -219,7 +221,7 @@ bool RestoreBackupFromTemp(FileContext* FileContext, wchar_t* RestoredFilePath)
         wchar_t* pathWithPostfix;
         BOOL result;
 
-        _swprintf(postfix, L".%d", i);
+        swprintf_s(postfix, L".%d", i);
 
         pathWithPostfix = BuildWideString(RestoredFilePath, postfix, NULL);
         if (!pathWithPostfix)
@@ -229,7 +231,7 @@ bool RestoreBackupFromTemp(FileContext* FileContext, wchar_t* RestoredFilePath)
         FreeWideString(pathWithPostfix);
 
         if (result || GetLastError() != ERROR_ALREADY_EXISTS)
-            return result;
+            return (result == TRUE);
     }
 
     return false;
@@ -596,28 +598,32 @@ void StopBackupMonitor()
 
 int wmain(int argc, wchar_t* argv[])
 {
-    g_consoleContext = CreateAsyncConsolePrinterContext();
+    g_consoleContext = CreateAsyncConsolePrinterContext(PrintColors::Default, true);
     if (!g_consoleContext)
     {
         printf("Error, can't initialize console printer\n");
         return 1;
     }
 
-    AssociateThreadWithConsolePrinterContext(g_consoleContext);
-
     if (argc != 3)
     {
         PrintMsg(PrintColors::Red, L"Error, invalid arguments, usage: tmpbackup <src dir> <backup dir>\n");
+        DestroyAsyncConsolePrinterContext(g_consoleContext);
         return 1;
     }
 
     if (!StartBackupMonitor(argv[1], argv[2]))
+    {
+        DestroyAsyncConsolePrinterContext(g_consoleContext);
         return 2;
+    }
 
     PrintMsg(PrintColors::Default, L"Press ENTER to exit\n");
     getchar();
 
     StopBackupMonitor();
+
+    DestroyAsyncConsolePrinterContext(g_consoleContext);
 
     return 0;
 }
