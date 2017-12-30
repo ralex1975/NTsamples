@@ -54,12 +54,12 @@ void AVLTreeFree(void* NodeBuf, void* Node)
 {
     FileContext* fileContext = (FileContext*)Node;
 
-    DeleteFileW(fileContext->TempFileName);
+    ::DeleteFileW(fileContext->TempFileName);
 
     FreeWideString(fileContext->BackupFileName);
     FreeWideString(fileContext->TempFileName);
     FreeWideString(fileContext->Key);
-    CloseHandle(fileContext->TempFile);
+    ::CloseHandle(fileContext->TempFile);
 
     free(NodeBuf);
 }
@@ -94,9 +94,9 @@ bool CreateTemporaryBackup(const wchar_t* SourceFile)
         return true;
     }
 
-    if (GetTempFileNameW(g_MonitorContext.DestTempDir, L"db_", 0, tempFile) == 0)
+    if (::GetTempFileNameW(g_MonitorContext.DestTempDir, L"db_", 0, tempFile) == 0)
     {
-        PrintMsg(PrintColors::Red, L"Error, can't generate temporary file name, code %d\n", GetLastError());
+        PrintMsg(PrintColors::Red, L"Error, can't generate temporary file name, code %d\n", ::GetLastError());
         return false;
     }
 
@@ -111,7 +111,7 @@ bool CreateTemporaryBackup(const wchar_t* SourceFile)
 
     if (!CreateHardLinkToExistingFile(tempFile, fullSourcePath))
     {
-        PrintMsg(PrintColors::Red, L"Error, can't create hard link, code: %d\n", GetLastError());
+        PrintMsg(PrintColors::Red, L"Error, can't create hard link, code: %d\n", ::GetLastError());
         goto ReleaseBlock;
     }
 
@@ -126,7 +126,7 @@ bool CreateTemporaryBackup(const wchar_t* SourceFile)
     );
     if (fileContext.TempFile == INVALID_HANDLE_VALUE)
     {
-        PrintMsg(PrintColors::Red, L"Error, can't open hard link, code: %d\n", GetLastError());
+        PrintMsg(PrintColors::Red, L"Error, can't open hard link, code: %d\n", ::GetLastError());
         goto ReleaseBlock;
     }
 
@@ -166,7 +166,7 @@ ReleaseBlock:
     if (!result)
     {
         if (fileContext.TempFile != INVALID_HANDLE_VALUE)
-            CloseHandle(fileContext.TempFile);
+            ::CloseHandle(fileContext.TempFile);
 
         if (fileContext.BackupFileName)
             FreeWideString(fileContext.BackupFileName);
@@ -207,10 +207,10 @@ bool RestoreBackupFromTemp(FileContext* FileContext, wchar_t* RestoredFilePath)
     if (!isDirReady)
         return false;
 
-    if (CreateHardLinkW(RestoredFilePath, FileContext->TempFileName, NULL))
+    if (::CreateHardLinkW(RestoredFilePath, FileContext->TempFileName, NULL))
         return true;
 
-    if (GetLastError() != ERROR_ALREADY_EXISTS)
+    if (::GetLastError() != ERROR_ALREADY_EXISTS)
         return false;
 
     // If a file with the same name exists we should try to find out a different name for a restoration
@@ -227,10 +227,10 @@ bool RestoreBackupFromTemp(FileContext* FileContext, wchar_t* RestoredFilePath)
         if (!pathWithPostfix)
             return false;
 
-        result = CreateHardLinkW(pathWithPostfix, FileContext->TempFileName, NULL);
+        result = ::CreateHardLinkW(pathWithPostfix, FileContext->TempFileName, NULL);
         FreeWideString(pathWithPostfix);
 
-        if (result || GetLastError() != ERROR_ALREADY_EXISTS)
+        if (result || ::GetLastError() != ERROR_ALREADY_EXISTS)
             return (result == TRUE);
     }
 
@@ -331,7 +331,7 @@ bool InitMonitoredDirContext(const wchar_t* SourceDir)
         );
     if (g_MonitorContext.SourceDirHandle == INVALID_HANDLE_VALUE)
     {
-        PrintMsg(PrintColors::Red, L"Error, can't open directory '%s', code %d\n", SourceDir, GetLastError());
+        PrintMsg(PrintColors::Red, L"Error, can't open directory '%s', code %d\n", SourceDir, ::GetLastError());
         return false;
     }
 
@@ -425,7 +425,7 @@ bool InitExcludedPath(const wchar_t* SourceDir, const wchar_t* BackupDir)
     g_MonitorContext.ExcludedPath = NULL;
 
     monitoredDirHandle =
-        CreateFileW(
+        ::CreateFileW(
             SourceDir,
             FILE_LIST_DIRECTORY,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -437,11 +437,11 @@ bool InitExcludedPath(const wchar_t* SourceDir, const wchar_t* BackupDir)
     if (monitoredDirHandle == INVALID_HANDLE_VALUE)
         goto ReleaseBlock;
 
-    if (!GetFileInformationByHandleEx(monitoredDirHandle, FileNameInfo, fileInfoBuf[0], sizeof(fileInfoBuf[0]) - sizeof(wchar_t)))
+    if (!::GetFileInformationByHandleEx(monitoredDirHandle, FileNameInfo, fileInfoBuf[0], sizeof(fileInfoBuf[0]) - sizeof(wchar_t)))
         goto ReleaseBlock;
 
     backupDirHandle =
-        CreateFileW(
+        ::CreateFileW(
             BackupDir,
             FILE_LIST_DIRECTORY,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -453,7 +453,7 @@ bool InitExcludedPath(const wchar_t* SourceDir, const wchar_t* BackupDir)
     if (backupDirHandle == INVALID_HANDLE_VALUE)
         goto ReleaseBlock;
 
-    if (!GetFileInformationByHandleEx(backupDirHandle, FileNameInfo, fileInfoBuf[1], sizeof(fileInfoBuf[1]) - sizeof(wchar_t)))
+    if (!::GetFileInformationByHandleEx(backupDirHandle, FileNameInfo, fileInfoBuf[1], sizeof(fileInfoBuf[1]) - sizeof(wchar_t)))
         goto ReleaseBlock;
 
     monitoredFileInfo->FileName[monitoredFileInfo->FileNameLength / sizeof(wchar_t)] = L'\0';
@@ -464,10 +464,10 @@ bool InitExcludedPath(const wchar_t* SourceDir, const wchar_t* BackupDir)
 ReleaseBlock:
 
     if (backupDirHandle != INVALID_HANDLE_VALUE)
-        CloseHandle(backupDirHandle);
+        ::CloseHandle(backupDirHandle);
 
     if (monitoredDirHandle != INVALID_HANDLE_VALUE)
-        CloseHandle(monitoredDirHandle);
+        ::CloseHandle(monitoredDirHandle);
 
     return result;
 }
@@ -564,6 +564,7 @@ bool StartBackupMonitor(wchar_t* SourceDir, wchar_t* BackupDir)
                 break;
             case FILE_ACTION_RENAMED_NEW_NAME:
                 wcscpy_s(format, L"FILE_ACTION_RENAMED_NEW_NAME %s\n");
+                color = PrintColors::DarkYellow;
                 break;
             case FILE_ACTION_REMOVED:
                 wcscpy_s(format, L"FILE_ACTION_REMOVED %s\n");
@@ -571,9 +572,11 @@ bool StartBackupMonitor(wchar_t* SourceDir, wchar_t* BackupDir)
                 break;
             case FILE_ACTION_RENAMED_OLD_NAME:
                 wcscpy_s(format, L"FILE_ACTION_RENAMED_OLD_NAME %s\n");
+                color = PrintColors::DarkYellow;
                 break;
             default:
                 wcscpy_s(format, L"UNKNOWN %s\n");
+                color = PrintColors::Red;
                 break;
             }
 
