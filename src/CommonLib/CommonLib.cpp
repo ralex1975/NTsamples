@@ -1,6 +1,7 @@
 #include "CommonLib.h"
 #include <ntdef.h>
 #include <stdarg.h>
+#include <crtdbg.h>
 
 // =============================================
 
@@ -265,5 +266,12 @@ void AcquireSpinLock(SpinAtom* Spinlock)
 
 void ReleaseSpinLock(SpinAtom* Spinlock)
 {
+    _ASSERT(AtomExchange(Spinlock, 1) == 0);
+}
 
+unsigned int GetAmountOfCPUCores()
+{
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    return info.dwNumberOfProcessors;
 }

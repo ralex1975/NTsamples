@@ -3,13 +3,7 @@
 #include <Windows.h>
 #include <intrin.h>
 
-#ifdef _WIN64
-typedef LONGLONG index_t;
-#define IncrementIndex ::InterlockedAdd64
-#else
-typedef LONGLONG index_t;
-#define IncrementIndex ::InterlockedAdd64
-#endif
+typedef uintptr_t index_t;
 
 #define CACHE_BLOCK_SIZE 256
 
@@ -152,6 +146,8 @@ bool PushDataToBufferQueue(void* Context, void* Data, size_t DataSize)
         entry->size = DataSize;
         entry->alignment = alignment;
         memcpy(entry->data, Data, DataSize);
+
+        context->topIndex += alignment;
     }
 
     ::LeaveCriticalSection(&context->popSync);

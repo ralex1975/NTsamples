@@ -40,3 +40,5 @@ typedef volatile long SpinAtom;
 
 void AcquireSpinLock(SpinAtom* Spinlock);
 void ReleaseSpinLock(SpinAtom* Spinlock);
+
+unsigned int GetAmountOfCPUCores();

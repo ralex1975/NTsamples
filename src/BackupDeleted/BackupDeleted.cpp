@@ -10,27 +10,43 @@
 #include <ConsolePrinter.h>
 
 /*TODO list:
-- Add IOCP support if needed
++ Add IOCP support if needed
 + Think about modified files : 0xC0000034 STATUS_OBJECT_NAME_NOT_FOUND
 + Exclude backup path from monitored
 + Solve backup duplication
 + Move stuff to common lib
 + Temporary generation
-- More informative errors
++ More informative errors
 - Investigate dir sharing violation
-- Investigate non-tracked deletion
++ Investigate non-tracked deletion
+- Increase temp file generation speed
+- Investigate issue with multithreading
 */
+
+struct OperationContext
+{
+    OVERLAPPED Overlapped;
+    PFILE_NOTIFY_INFORMATION ChangeInfo;
+    HANDLE     Thread;
+    HANDLE     StartStopEvent;
+    DWORD      Index;
+};
 
 struct
 {
-    HANDLE           SourceDirHandle;
-    wchar_t*         SourceDir;
-    wchar_t*         DestTempDir;
-    wchar_t*         DestBackupDir;
-    wchar_t*         ExcludedPath;
-    size_t           ExcludedPathLen;
-    CRITICAL_SECTION FilesContextCS;
-    AVL_TREE         FilesContext;
+    HANDLE            SourceDirHandle;
+    HANDLE            SourceDirIocp;
+    wchar_t*          SourceDir;
+    wchar_t*          DestTempDir;
+    wchar_t*          DestBackupDir;
+    wchar_t*          ExcludedPath;
+    size_t            ExcludedPathLen;
+    CRITICAL_SECTION  FilesContextCS;
+    AVL_TREE          FilesContext;
+    OperationContext* Operations;
+    unsigned int      OperationsCount;
+    void*             OperationsBuffer;
+    size_t            OperationsBufferSize;
 } g_MonitorContext;
 
 struct FileContext
@@ -86,6 +102,7 @@ bool CreateTemporaryBackup(const wchar_t* SourceFile)
     FileContext fileContext;
     wchar_t tempFile[MAX_PATH + 1];
     wchar_t* fullSourcePath = 0;
+    void* insert;
     bool result = false;
 
     if (IsPathExcluded(SourceFile))
@@ -153,7 +170,10 @@ bool CreateTemporaryBackup(const wchar_t* SourceFile)
         goto ReleaseBlock;
     }
 
-    if (!InsertAVLElement(&g_MonitorContext.FilesContext, &fileContext, sizeof(fileContext)))
+    EnterCriticalSection(&g_MonitorContext.FilesContextCS);
+    insert = InsertAVLElement(&g_MonitorContext.FilesContext, &fileContext, sizeof(fileContext));
+    LeaveCriticalSection(&g_MonitorContext.FilesContextCS);
+    if (!insert)
     {
         PrintMsg(PrintColors::Red, L"Error, can't save file cache\n");
         goto ReleaseBlock;
@@ -262,7 +282,9 @@ bool UpgradeBackupToConstant(const wchar_t* SourceFile)
 
     _wcslwr(lookFileContext.Key);
 
+    EnterCriticalSection(&g_MonitorContext.FilesContextCS);
     fileContext = (FileContext*)FindAVLElement(&g_MonitorContext.FilesContext, &lookFileContext);
+    LeaveCriticalSection(&g_MonitorContext.FilesContextCS);
     if (!fileContext)
         goto ReleaseBlock;
 
@@ -284,7 +306,11 @@ bool UpgradeBackupToConstant(const wchar_t* SourceFile)
 ReleaseBlock:
 
     if (found)
+    {
+        EnterCriticalSection(&g_MonitorContext.FilesContextCS);
         RemoveAVLElement(&g_MonitorContext.FilesContext, &lookFileContext);
+        LeaveCriticalSection(&g_MonitorContext.FilesContextCS);
+    }
 
     if (lookFileContext.Key)
         FreeWideString(lookFileContext.Key);
@@ -299,8 +325,13 @@ ReleaseBlock:
 
 void ReleaseBackupMonitorContext()
 {
+    unsigned int i;
+
     if (g_MonitorContext.SourceDirHandle && g_MonitorContext.SourceDirHandle != INVALID_HANDLE_VALUE)
         ::CloseHandle(g_MonitorContext.SourceDirHandle);
+
+    if (g_MonitorContext.SourceDirIocp)
+        ::CloseHandle(g_MonitorContext.SourceDirIocp);
 
     if (g_MonitorContext.SourceDir)
         FreeWideString(g_MonitorContext.SourceDir);
@@ -314,7 +345,20 @@ void ReleaseBackupMonitorContext()
     if (g_MonitorContext.ExcludedPath)
         FreeWideString(g_MonitorContext.ExcludedPath);
 
+    if (g_MonitorContext.Operations)
+    {
+        for (i = 0; i < g_MonitorContext.OperationsCount; i++)
+            if (g_MonitorContext.Operations[i].Thread)
+                ::CloseHandle(g_MonitorContext.Operations[i].Thread);
+
+        free(g_MonitorContext.Operations);
+    }
+
+    if (g_MonitorContext.OperationsBuffer)
+        ::VirtualFree(g_MonitorContext.OperationsBuffer, 0, MEM_RELEASE);
+
     DestroyAVLTree(&g_MonitorContext.FilesContext);
+    DeleteCriticalSection(&g_MonitorContext.FilesContextCS);
 }
 
 bool InitMonitoredDirContext(const wchar_t* SourceDir)
@@ -326,7 +370,7 @@ bool InitMonitoredDirContext(const wchar_t* SourceDir)
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             NULL,
             OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
             NULL
         );
     if (g_MonitorContext.SourceDirHandle == INVALID_HANDLE_VALUE)
@@ -339,6 +383,13 @@ bool InitMonitoredDirContext(const wchar_t* SourceDir)
     if (!g_MonitorContext.SourceDir)
     {
         PrintMsg(PrintColors::Red, L"Error, can't prepare source directory path\n");
+        return false;
+    }
+
+    g_MonitorContext.SourceDirIocp = CreateIoCompletionPort(g_MonitorContext.SourceDirHandle, NULL, 0, NULL);
+    if (!g_MonitorContext.SourceDirIocp)
+    {
+        PrintMsg(PrintColors::Red, L"Error, can't init io completion port, code %d\n", ::GetLastError());
         return false;
     }
 
@@ -371,13 +422,23 @@ bool CreateBackupDir(wchar_t* BackupDir)
 
     if (!::CreateDirectoryW(g_MonitorContext.DestTempDir, NULL) && ::GetLastError() != ERROR_ALREADY_EXISTS)
     {
-        PrintMsg(PrintColors::Red, L"Error, can't create temporary directory '%s', code %d\n", g_MonitorContext.DestTempDir, ::GetLastError());
+        PrintMsg(
+            PrintColors::Red, 
+            L"Error, can't create temporary directory '%s', code %d\n", 
+            g_MonitorContext.DestTempDir, 
+            ::GetLastError()
+        );
         return false;
     }
 
     if (!::CreateDirectoryW(g_MonitorContext.DestBackupDir, NULL) && ::GetLastError() != ERROR_ALREADY_EXISTS)
     {
-        PrintMsg(PrintColors::Red, L"Error, can't create backup directory '%s', code %d\n", g_MonitorContext.DestBackupDir, ::GetLastError());
+        PrintMsg(
+            PrintColors::Red, 
+            L"Error, can't create backup directory '%s', code %d\n", 
+            g_MonitorContext.DestBackupDir, 
+            ::GetLastError()
+        );
         return false;
     }
 
@@ -435,10 +496,26 @@ bool InitExcludedPath(const wchar_t* SourceDir, const wchar_t* BackupDir)
             NULL
         );
     if (monitoredDirHandle == INVALID_HANDLE_VALUE)
+    {
+        PrintMsg(
+            PrintColors::Red, 
+            L"Error, can't open directory '%s', code %d\n", 
+            SourceDir,
+            ::GetLastError()
+        );
         goto ReleaseBlock;
+    }
 
     if (!::GetFileInformationByHandleEx(monitoredDirHandle, FileNameInfo, fileInfoBuf[0], sizeof(fileInfoBuf[0]) - sizeof(wchar_t)))
+    {
+        PrintMsg(
+            PrintColors::Red, 
+            L"Error, can't receive information about directory '%s', code %d\n", 
+            SourceDir,
+            ::GetLastError()
+        );
         goto ReleaseBlock;
+    }
 
     backupDirHandle =
         ::CreateFileW(
@@ -451,10 +528,26 @@ bool InitExcludedPath(const wchar_t* SourceDir, const wchar_t* BackupDir)
             NULL
         );
     if (backupDirHandle == INVALID_HANDLE_VALUE)
+    {
+        PrintMsg(
+            PrintColors::Red, 
+            L"Error, can't open directory '%s', code %d\n", 
+            BackupDir,
+            ::GetLastError()
+        );
         goto ReleaseBlock;
+    }
 
     if (!::GetFileInformationByHandleEx(backupDirHandle, FileNameInfo, fileInfoBuf[1], sizeof(fileInfoBuf[1]) - sizeof(wchar_t)))
+    {
+        PrintMsg(
+            PrintColors::Red, 
+            L"Error, can't receive information about directory '%s', code %d\n", 
+            BackupDir,
+            ::GetLastError()
+        );
         goto ReleaseBlock;
+    }
 
     monitoredFileInfo->FileName[monitoredFileInfo->FileNameLength / sizeof(wchar_t)] = L'\0';
     backupFileInfo->FileName[backupFileInfo->FileNameLength / sizeof(wchar_t)] = L'\0';
@@ -472,12 +565,68 @@ ReleaseBlock:
     return result;
 }
 
+bool InitOperationsContext()
+{
+    enum { ChangeInformationBlockSize = 0x1000 };
+    unsigned int i;
+
+    g_MonitorContext.OperationsCount = GetAmountOfCPUCores() * 2;
+
+    g_MonitorContext.Operations = (OperationContext*)malloc(sizeof(OperationContext) * g_MonitorContext.OperationsCount);
+    if (!g_MonitorContext.Operations)
+    {
+        PrintMsg(PrintColors::Red, L"Error, can't allocate operations context\n");
+        return false;
+    }
+
+    g_MonitorContext.OperationsBufferSize = ChangeInformationBlockSize;
+    g_MonitorContext.OperationsBuffer = ::VirtualAlloc(
+        NULL, 
+        ChangeInformationBlockSize * g_MonitorContext.OperationsCount,
+        MEM_COMMIT, 
+        PAGE_READWRITE
+    );
+    if (!g_MonitorContext.OperationsBuffer)
+    {
+        PrintMsg(
+            PrintColors::Red, 
+            L"Error, can't allocate operations buffer, code %d\n", 
+            ::GetLastError()
+        );
+        return false;
+    }
+
+    for (i = 0; i < g_MonitorContext.OperationsCount; i++)
+    {
+        g_MonitorContext.Operations[i].StartStopEvent = ::CreateEvent(NULL, FALSE, FALSE, NULL);
+        if (!g_MonitorContext.Operations[i].StartStopEvent)
+        {
+            PrintMsg(
+                PrintColors::Red, 
+                L"Error, can't create sync event, code %d\n", 
+                ::GetLastError()
+            );
+            return false;
+        }
+
+        g_MonitorContext.Operations[i].Index = i;
+        g_MonitorContext.Operations[i].ChangeInfo = (PFILE_NOTIFY_INFORMATION)(
+            (char*)g_MonitorContext.OperationsBuffer + (ChangeInformationBlockSize * i)
+        );
+        g_MonitorContext.Operations[i].Thread = NULL;
+        memset(&g_MonitorContext.Operations[i].Overlapped, 0, sizeof(g_MonitorContext.Operations[i].Overlapped));
+    }
+
+    return true;
+}
+
 bool InitBackupMonitorContext(const wchar_t* SourceDir, wchar_t* BackupDir)
 {
     bool result = false;
 
     memset(&g_MonitorContext, 0, sizeof(g_MonitorContext));
 
+    InitializeCriticalSection(&g_MonitorContext.FilesContextCS);
     InitializeAVLTree(&g_MonitorContext.FilesContext, AVLTreeAllocate, AVLTreeFree, AVLTreeCompare);
 
     if (!InitMonitoredDirContext(SourceDir))
@@ -492,6 +641,9 @@ bool InitBackupMonitorContext(const wchar_t* SourceDir, wchar_t* BackupDir)
     if (!InitExcludedPath(SourceDir, BackupDir))
         goto ReleaseBlock;
 
+    if (!InitOperationsContext())
+        goto ReleaseBlock;
+
     result = true;
 
 ReleaseBlock:
@@ -502,98 +654,185 @@ ReleaseBlock:
     return result;
 }
 
+DWORD WINAPI MonitoringRoutine(LPVOID Parameter)
+{
+    OperationContext* context = g_MonitorContext.Operations + (uintptr_t)Parameter;
+
+    ::SetEvent(context->StartStopEvent);
+
+    while (true)
+    {
+        OperationContext* current;
+        PFILE_NOTIFY_INFORMATION info;
+        LPOVERLAPPED overlapped;
+        ULONG_PTR key;
+        DWORD returned;
+
+        if (!::GetQueuedCompletionStatus(g_MonitorContext.SourceDirIocp, &returned, &key, &overlapped, INFINITE))
+        {
+            PrintMsg(PrintColors::Red, L"Error, can't receive iocp status, code: %d\n", ::GetLastError());
+            break;
+        }
+
+        if (!returned)
+            break;
+
+        current = (OperationContext*)overlapped;
+        info = current->ChangeInfo;
+
+        while (true)
+        {
+            wchar_t format[100];
+            PrintColors color = PrintColors::Default;
+
+            if (info->FileNameLength + sizeof(FILE_NOTIFY_INFORMATION) + sizeof(WCHAR) > g_MonitorContext.OperationsBufferSize)
+                break;
+
+            info->FileName[info->FileNameLength / sizeof(WCHAR)] = L'\0';
+
+            if (info->Action == FILE_ACTION_ADDED || info->Action == FILE_ACTION_RENAMED_NEW_NAME)
+                CreateTemporaryBackup(info->FileName);
+            else if (info->Action == FILE_ACTION_REMOVED || info->Action == FILE_ACTION_RENAMED_OLD_NAME)
+                UpgradeBackupToConstant(info->FileName);
+            
+            switch (info->Action)
+            {
+            case FILE_ACTION_ADDED:
+                wcscpy_s(format, L"FILE_ACTION_ADDED (inx:%d) %s\n");
+                color = PrintColors::DarkGreen;
+                break;
+            case FILE_ACTION_RENAMED_NEW_NAME:
+                wcscpy_s(format, L"FILE_ACTION_RENAMED_NEW_NAME (inx:%d) %s\n");
+                color = PrintColors::DarkYellow;
+                break;
+            case FILE_ACTION_REMOVED:
+                wcscpy_s(format, L"FILE_ACTION_REMOVED (inx:%d) %s\n");
+                color = PrintColors::DarkRed;
+                break;
+            case FILE_ACTION_RENAMED_OLD_NAME:
+                wcscpy_s(format, L"FILE_ACTION_RENAMED_OLD_NAME (inx:%d) %s\n");
+                color = PrintColors::DarkYellow;
+                break;
+            default:
+                wcscpy_s(format, L"UNKNOWN (inx:%d) %s\n");
+                color = PrintColors::Red;
+                break;
+            }
+
+            PrintMsg(color, format, context->Index, info->FileName);
+
+            if (!info->NextEntryOffset)
+                break;
+
+            info = (PFILE_NOTIFY_INFORMATION)((char*)info + info->NextEntryOffset);
+        }
+
+        if (!::ReadDirectoryChangesW(
+            g_MonitorContext.SourceDirHandle,
+            current->ChangeInfo,
+            g_MonitorContext.OperationsBufferSize,
+            TRUE,
+            FILE_NOTIFY_CHANGE_FILE_NAME,
+            &returned,
+            overlapped,
+            NULL))
+        {
+            PrintMsg(PrintColors::Red, L"Error, failed to read directory changes, code: %d\n", ::GetLastError());
+            break;
+        }
+    }
+
+    ::SetEvent(context->StartStopEvent);
+
+    return 0;
+}
+
 bool StartBackupMonitor(wchar_t* SourceDir, wchar_t* BackupDir)
 {
-    enum { ChangeInformationBlockSize = 0x1000 };
-    PFILE_NOTIFY_INFORMATION changeInfo;
-    DWORD returned;
+    unsigned int i;
 
     if (!SetTokenPrivilege("SeCreateSymbolicLinkPrivilege", TRUE))
         return false;
 
     if (!InitBackupMonitorContext(SourceDir, BackupDir))
         return false;
-    
-    changeInfo = (PFILE_NOTIFY_INFORMATION)::VirtualAlloc(NULL, ChangeInformationBlockSize, MEM_COMMIT, PAGE_READWRITE);
-    if (!changeInfo)
+
+    for (i = 0; i < g_MonitorContext.OperationsCount; i++)
     {
-        PrintMsg(PrintColors::Red, L"Error, can't allocate change information block, code: %d\n", ::GetLastError());
-        ReleaseBackupMonitorContext();
-        return false;
+        DWORD threadId, error;
+        OperationContext* context = g_MonitorContext.Operations + i;
+        
+        context->Thread = ::CreateThread(NULL, 0, MonitoringRoutine, (LPVOID)i, 0, &threadId);
+        if (!context->Thread)
+        {   
+            PrintMsg(
+                PrintColors::Yellow, 
+                L"Warning, can't create working thread, code %d\n", 
+                ::GetLastError()
+            );
+            continue;
+        }
+
+        error = ::WaitForSingleObject(context->StartStopEvent, 1000);
+        if (error != WAIT_OBJECT_0)
+        {
+            PrintMsg(
+                PrintColors::Yellow, 
+                L"Warning, working thread (tid:%d,inx:%d) didn't respond, code %d\n",
+                threadId, 
+                context->Index,
+                ::GetLastError()
+            );
+        }
     }
 
-    while (true)
+    for (i = 0; i < g_MonitorContext.OperationsCount; i++)
     {
-        PFILE_NOTIFY_INFORMATION currentInfo = changeInfo;
+        OperationContext* context = g_MonitorContext.Operations + i;
+        DWORD returned;
 
         if (!::ReadDirectoryChangesW(
-                g_MonitorContext.SourceDirHandle, 
-                changeInfo, 
-                ChangeInformationBlockSize,
-                TRUE, 
-                FILE_NOTIFY_CHANGE_FILE_NAME,
-                &returned, 
-                NULL, 
-                NULL))
-        {
-            PrintMsg(PrintColors::Red, L"Error, failed to read directory changes, code: %d\n", GetLastError());
-            ReleaseBackupMonitorContext();
-            return false;
-        }
-
-        while (true)
-        {
-            if (currentInfo->FileNameLength + sizeof(FILE_NOTIFY_INFORMATION) + sizeof(WCHAR) > ChangeInformationBlockSize)
-                break;
-
-            currentInfo->FileName[currentInfo->FileNameLength / sizeof(WCHAR)] = L'\0';
-
-            if (currentInfo->Action == FILE_ACTION_ADDED || currentInfo->Action == FILE_ACTION_RENAMED_NEW_NAME)
-                CreateTemporaryBackup(currentInfo->FileName);
-            else if (currentInfo->Action == FILE_ACTION_REMOVED || currentInfo->Action == FILE_ACTION_RENAMED_OLD_NAME)
-                UpgradeBackupToConstant(currentInfo->FileName);
-            
-            wchar_t format[100];
-            PrintColors color = PrintColors::Default;
-
-            switch (currentInfo->Action)
-            {
-            case FILE_ACTION_ADDED:
-                wcscpy_s(format, L"FILE_ACTION_ADDED %s\n");
-                color = PrintColors::DarkGreen;
-                break;
-            case FILE_ACTION_RENAMED_NEW_NAME:
-                wcscpy_s(format, L"FILE_ACTION_RENAMED_NEW_NAME %s\n");
-                color = PrintColors::DarkYellow;
-                break;
-            case FILE_ACTION_REMOVED:
-                wcscpy_s(format, L"FILE_ACTION_REMOVED %s\n");
-                color = PrintColors::DarkRed;
-                break;
-            case FILE_ACTION_RENAMED_OLD_NAME:
-                wcscpy_s(format, L"FILE_ACTION_RENAMED_OLD_NAME %s\n");
-                color = PrintColors::DarkYellow;
-                break;
-            default:
-                wcscpy_s(format, L"UNKNOWN %s\n");
-                color = PrintColors::Red;
-                break;
-            }
-
-            PrintMsg(color, format, currentInfo->FileName);
-
-            if (!currentInfo->NextEntryOffset)
-                break;
-
-            currentInfo = (PFILE_NOTIFY_INFORMATION)((char*)currentInfo + currentInfo->NextEntryOffset);
-        }
+            g_MonitorContext.SourceDirHandle,
+            context->ChangeInfo,
+            g_MonitorContext.OperationsBufferSize,
+            TRUE,
+            FILE_NOTIFY_CHANGE_FILE_NAME,
+            &returned,
+            &context->Overlapped,
+            NULL)
+        )
+            PrintMsg(
+                PrintColors::Yellow,
+                L"Warning, failed to read directory changes (inx:%d), code: %d\n", 
+                context->Index, 
+                ::GetLastError()
+            );
     }
-    
-    return true;
 }
 
 void StopBackupMonitor()
 {
+    unsigned int i;
+
+    for (i = 0; i < g_MonitorContext.OperationsCount; i++)
+    {
+        OperationContext* context = g_MonitorContext.Operations + i;
+
+        if (!::PostQueuedCompletionStatus(g_MonitorContext.SourceDirIocp, 0, 0, &context->Overlapped))
+            PrintMsg(
+                PrintColors::Yellow,
+                L"Warning, can't post completion status (inx:%d), code: %d\n", 
+                context->Index,
+                ::GetLastError()
+            );
+    }
+
+    for (i = 0; i < g_MonitorContext.OperationsCount; i++)
+    {
+        OperationContext* context = g_MonitorContext.Operations + i;
+        ::WaitForSingleObject(context->StartStopEvent, INFINITE);
+    }
+
     ReleaseBackupMonitorContext();
 }
 
@@ -608,12 +847,17 @@ int wmain(int argc, wchar_t* argv[])
         return 1;
     }
 
+    PrintMsg(PrintColors::Default, L"Backup deleted files by JKornev, 2017\n");
+
     if (argc != 3)
     {
-        PrintMsg(PrintColors::Red, L"Error, invalid arguments, usage: tmpbackup <src dir> <backup dir>\n");
+        PrintMsg(PrintColors::Red, L"Error, invalid arguments, usage: BackupDeleted <SourceDir> <BackupDir>\n");
         DestroyAsyncConsolePrinterContext(g_consoleContext);
         return 1;
     }
+
+    PrintMsg(PrintColors::Gray, L"Source directory: %s\n", argv[1]);
+    PrintMsg(PrintColors::Gray, L"Backup directory: %s\n", argv[2]);
 
     if (!StartBackupMonitor(argv[1], argv[2]))
     {
