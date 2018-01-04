@@ -808,6 +808,8 @@ bool StartBackupMonitor(wchar_t* SourceDir, wchar_t* BackupDir)
                 ::GetLastError()
             );
     }
+
+    return true;
 }
 
 void StopBackupMonitor()
