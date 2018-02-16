@@ -170,9 +170,9 @@ bool CreateTemporaryBackup(const wchar_t* SourceFile)
         goto ReleaseBlock;
     }
 
-    EnterCriticalSection(&g_MonitorContext.FilesContextCS);
+    ::EnterCriticalSection(&g_MonitorContext.FilesContextCS);
     insert = InsertAVLElement(&g_MonitorContext.FilesContext, &fileContext, sizeof(fileContext));
-    LeaveCriticalSection(&g_MonitorContext.FilesContextCS);
+    ::LeaveCriticalSection(&g_MonitorContext.FilesContextCS);
     if (!insert)
     {
         PrintMsg(PrintColors::Red, L"Error, can't save file cache\n");
@@ -282,9 +282,9 @@ bool UpgradeBackupToConstant(const wchar_t* SourceFile)
 
     _wcslwr(lookFileContext.Key);
 
-    EnterCriticalSection(&g_MonitorContext.FilesContextCS);
+    ::EnterCriticalSection(&g_MonitorContext.FilesContextCS);
     fileContext = (FileContext*)FindAVLElement(&g_MonitorContext.FilesContext, &lookFileContext);
-    LeaveCriticalSection(&g_MonitorContext.FilesContextCS);
+    ::LeaveCriticalSection(&g_MonitorContext.FilesContextCS);
     if (!fileContext)
         goto ReleaseBlock;
 
@@ -307,9 +307,9 @@ ReleaseBlock:
 
     if (found)
     {
-        EnterCriticalSection(&g_MonitorContext.FilesContextCS);
+        ::EnterCriticalSection(&g_MonitorContext.FilesContextCS);
         RemoveAVLElement(&g_MonitorContext.FilesContext, &lookFileContext);
-        LeaveCriticalSection(&g_MonitorContext.FilesContextCS);
+        ::LeaveCriticalSection(&g_MonitorContext.FilesContextCS);
     }
 
     if (lookFileContext.Key)
@@ -358,7 +358,7 @@ void ReleaseBackupMonitorContext()
         ::VirtualFree(g_MonitorContext.OperationsBuffer, 0, MEM_RELEASE);
 
     DestroyAVLTree(&g_MonitorContext.FilesContext);
-    DeleteCriticalSection(&g_MonitorContext.FilesContextCS);
+    ::DeleteCriticalSection(&g_MonitorContext.FilesContextCS);
 }
 
 bool InitMonitoredDirContext(const wchar_t* SourceDir)
@@ -626,7 +626,7 @@ bool InitBackupMonitorContext(const wchar_t* SourceDir, wchar_t* BackupDir)
 
     memset(&g_MonitorContext, 0, sizeof(g_MonitorContext));
 
-    InitializeCriticalSection(&g_MonitorContext.FilesContextCS);
+    ::InitializeCriticalSection(&g_MonitorContext.FilesContextCS);
     InitializeAVLTree(&g_MonitorContext.FilesContext, AVLTreeAllocate, AVLTreeFree, AVLTreeCompare);
 
     if (!InitMonitoredDirContext(SourceDir))
