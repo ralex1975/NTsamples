@@ -121,6 +121,8 @@ bool CreateHardLinkToExistingFile(const wchar_t* SourceFile, const wchar_t* Dest
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 
         NULL, OPEN_EXISTING, 0, NULL
     );
+    if (file == INVALID_HANDLE_VALUE)
+        goto ReleaseBlock;
 
     // Link a new file with a file that we want to use as the source
 
