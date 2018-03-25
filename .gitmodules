@@ -1,0 +1,3 @@
+[submodule "libs/ntlib"]
+	path = libs/ntlib
+	url = https://github.com/JKornev/NTlib

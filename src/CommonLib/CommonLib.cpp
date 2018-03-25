@@ -1,5 +1,5 @@
 #include "CommonLib.h"
-#include <ntdef.h>
+#include <NTLib.h>
 #include <stdarg.h>
 #include <crtdbg.h>
 

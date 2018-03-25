@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <tchar.h>
-#include <ntdef.h>
+#include <NTLib.h>
 #include <AVLTree.h>
 #include <CommonLib.h>
 #include <ConsolePrinter.h>

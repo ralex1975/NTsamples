@@ -82,29 +82,29 @@
     <LinkIncremental>true</LinkIncremental>
     <OutDir>$(SolutionDir)..\build\$(Configuration)\x86\</OutDir>
     <IntDir>$(SolutionDir)..\build\intermediate\$(Configuration)\$(ProjectName)\x86\</IntDir>
-    <IncludePath>$(SolutionDir)..\libs;$(IncludePath)</IncludePath>
-    <LibraryPath>$(SolutionDir)..\libs;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(SolutionDir)..\libs\ntlib\include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(SolutionDir)..\libs\ntlib\library\x86;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
     <OutDir>$(SolutionDir)..\build\$(Configuration)\x64\</OutDir>
     <IntDir>$(SolutionDir)..\build\intermediate\$(Configuration)\$(ProjectName)\x64\</IntDir>
-    <IncludePath>$(SolutionDir)..\libs;$(IncludePath)</IncludePath>
-    <LibraryPath>$(SolutionDir)..\libs;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(SolutionDir)..\libs\ntlib\include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(SolutionDir)..\libs\ntlib\library\x64;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
     <OutDir>$(SolutionDir)..\build\$(Configuration)\x86\</OutDir>
     <IntDir>$(SolutionDir)..\build\intermediate\$(Configuration)\$(ProjectName)\x86\</IntDir>
-    <IncludePath>$(SolutionDir)..\libs;$(IncludePath)</IncludePath>
-    <LibraryPath>$(SolutionDir)..\libs;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(SolutionDir)..\libs\ntlib\include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(SolutionDir)..\libs\ntlib\library\x86;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
     <OutDir>$(SolutionDir)..\build\$(Configuration)\x64\</OutDir>
     <IntDir>$(SolutionDir)..\build\intermediate\$(Configuration)\$(ProjectName)\x64\</IntDir>
-    <IncludePath>$(SolutionDir)..\libs;$(IncludePath)</IncludePath>
-    <LibraryPath>$(SolutionDir)..\libs;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(SolutionDir)..\libs\ntlib\include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(SolutionDir)..\libs\ntlib\library\x64;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
